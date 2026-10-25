@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Paced Lab · Campaign simulator</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="/" aria-label="Paced Lab home"
+        ><span class="logo">p<span>↗</span></span
+        >paced<span class="muted">lab</span></a
+      >
+      <div class="workspace">
+        <span class="avatar">P</span>
+        <div>Development workspace<small>Local environment</small></div>
+      </div>
+      <p class="nav-label">WORKSPACE</p>
+      <div class="nav-item active">
+        <span>◉</span> Campaign simulator <span class="small-tag">LAB</span>
+      </div>
+      <div class="side-note">
+        <span class="green-dot"></span> Simulation only
+        <p>No LinkedIn account connected.<br />No real messages are sent.</p>
+      </div>
+      <div class="sidebar-bottom">ENGINE EXPLORER <span>v0.1</span></div>
+    </aside>
+    <main>
+      <header class="topbar">
+        <span>Workspace <span class="slash">/</span> Simulator</span
+        ><span class="local"
+          ><span class="green-dot"></span> Running locally</span
+        >
+      </header>
+      <section class="content">
+        <div class="heading">
+          <div>
+            <p class="eyebrow">CAMPAIGN ENGINE / INTERACTIVE PREVIEW</p>
+            <h1>See the sequence in action.</h1>
+            <p class="subtitle">
+              Walk through a campaign. Understand every decision before anything
+              goes live.
+            </p>
+          </div>
+          <span class="outline-tag">SYNTHETIC DATA</span>
+        </div>
+        <div
+          class="scenario-grid"
+          id="scenarios"
+          aria-label="Choose a scenario"
+        ></div>
+        <div class="lab-layout">
+          <section class="panel playback">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">SIMULATION</p>
+                <h2 id="scenario-title">Loading scenarios…</h2>
+              </div>
+              <span id="progress" class="pill">Ready</span>
+            </div>
+            <p id="description" class="panel-description"></p>
+            <div class="controls">
+              <button id="next" class="primary" disabled>
+                Next step <span>→</span></button
+              ><button id="run" class="secondary" disabled>Run to end</button
+              ><button id="reset" class="text-button" disabled>↺ Reset</button
+              ><span id="step-count">0 events processed</span>
+            </div>
+            <div class="timeline" id="timeline"></div>
+            <div class="explanation" aria-live="polite" aria-atomic="true">
+              <span class="info-icon">i</span>
+              <div>
+                <strong id="decision-title">Ready when you are</strong>
+                <p id="decision-copy">Select a scenario to begin.</p>
+              </div>
+            </div>
+          </section>
+          <aside class="right-column">
+            <section class="panel state-panel">
+              <div class="panel-heading">
+                <h2>Current state</h2>
+                <span class="live-label">ENGINE OUTPUT</span>
+              </div>
+              <div class="person">
+                <span class="person-avatar">AP</span>
+                <div>
+                  Alex Parker<small>Example prospect · fictional</small>
+                </div>
+              </div>
+              <dl>
+                <div>
+                  <dt>Connection</dt>
+                  <dd id="connection">Not observed</dd>
+                </div>
+                <div>
+                  <dt>Sequence</dt>
+                  <dd id="sequence">Not started</dd>
+                </div>
+                <div>
+                  <dt>Simulated sends</dt>
+                  <dd id="sends">0</dd>
+                </div>
+                <div>
+                  <dt>Events processed</dt>
+                  <dd id="events">0</dd>
+                </div>
+              </dl>
+            </section>
+            <section class="panel actions-panel">
+              <h2>Planned actions</h2>
+              <div id="actions" class="action-list">No actions yet.</div>
+            </section>
+            <div class="learning">
+              <span>↗</span>
+              <div>
+                <strong>A window into the engine</strong>
+                <p>
+                  These states come from the same campaign engine used by our
+                  automated tests.
+                </p>
+              </div>
+            </div>
+          </aside>
+        </div>
+        <footer>
+          <span>LOCAL SANDBOX · NO LIVE OUTREACH</span
+          ><span>Explore safely. Every recipient and event is fictional.</span>
+        </footer>
+      </section>
+    </main>
+  </body>
+</html>

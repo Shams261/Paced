@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Development authentication measurement</title>
+    <script src="/auth-check.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <h1>Development authentication measurement</h1>
+      <p>
+        Runs five sequential checks of your current authenticated access.
+        Displays timing and SQL call counts only. No tokens or identity data are
+        displayed or saved.
+      </p>
+      <button id="run">Run five checks</button>
+      <pre id="results" role="status" aria-live="polite">Ready</pre>
+      <a href="/">Return to app</a>
+    </main>
+  </body>
+</html>

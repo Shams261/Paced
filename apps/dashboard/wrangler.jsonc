@@ -1,0 +1,11 @@
+{
+  "name": "sequence-dev",
+  "pages_build_output_dir": "dist",
+  "compatibility_date": "2026-10-18",
+  "services": [
+    {
+      "binding": "AUTH_API",
+      "service": "sequence-dev-auth"
+    }
+  ]
+}

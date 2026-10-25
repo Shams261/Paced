@@ -1,0 +1,1 @@
+{"name":"@outreach/shell-contracts","private":true,"version":"0.0.0","type":"module","exports":"./src/index.ts","dependencies":{"zod":"4.6.7","@outreach/campaign-engine":"0.0.0"}}

@@ -1,0 +1,31 @@
+{
+  "name": "sequence-dev-auth",
+  "account_id": "319119b10a3906fd76f1c11a2abddbe0",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-18",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {
+    "enabled": false
+  },
+  "vars": {
+    "APP_ORIGIN": "https://sequence-dev-etj.pages.dev",
+    "SUPABASE_URL": "https://syisdkvnkbmbsbvchdgb.supabase.co",
+    "TOKEN_KEY_VERSION": "v1",
+    "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_ZmIr1LE-hTo8c1htQKy8lQ_2jb-SRFA"
+  },
+  "triggers": {
+    "crons": [
+      "17 * * * *"
+    ]
+  },
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "6fd04ed0c9f44a698c35d937666ba25d"
+    }
+  ]
+}
