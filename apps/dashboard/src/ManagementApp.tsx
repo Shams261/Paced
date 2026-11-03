@@ -327,6 +327,15 @@ export function ManagementApp({
             <p>
               Recovery: {status.recovery.state}. {status.recovery.note}
             </p>
+            {status.health && (
+              <p>
+                Queue: {status.health.dueCount} due,{" "}
+                {status.health.waitingCount} waiting, {status.health.heldCount}{" "}
+                held,{" "}
+                {status.health.uncertainSends + status.health.unknownOutcomes}{" "}
+                uncertain. Executors: {status.health.executors}.
+              </p>
+            )}
           </>
         ) : (
           <p>Status not loaded.</p>
@@ -430,25 +439,24 @@ export function ManagementApp({
           )}
           <fieldset disabled={busy || !!pending}>
             <legend>2. Draft and select recipients</legend>
-            <label>
-              Campaign
-              <select
-                value={campaign?.id ?? ""}
-                onChange={(e) =>
-                  selectCampaign(
-                    data.campaigns.find((c) => c.id === e.target.value) ?? null,
-                  )
-                }
-              >
-                <option value="">New campaign</option>
-                {data.campaigns.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} — {c.status}
-                    {c.approved ? " (approved)" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <label htmlFor="campaign-select">Campaign</label>
+            <select
+              id="campaign-select"
+              value={campaign?.id ?? ""}
+              onChange={(e) =>
+                selectCampaign(
+                  data.campaigns.find((c) => c.id === e.target.value) ?? null,
+                )
+              }
+            >
+              <option value="">New campaign</option>
+              {data.campaigns.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} — {c.status}
+                  {c.approved ? " (approved)" : ""}
+                </option>
+              ))}
+            </select>
             <label>
               Campaign name
               <input

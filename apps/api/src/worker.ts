@@ -1,5 +1,6 @@
 import { managementGateway } from "./management.js";
 import { countedResponse } from "./usage.js";
+import { logEvent, requestEvent } from "./telemetry.js";
 import { GoogleProvider } from "./auth/provider.js";
 import { createAuthApp } from "./auth/routes.js";
 import { SessionStore, postgresAuthDatabase } from "./auth/store.js";
@@ -77,6 +78,18 @@ export default {
       return countedResponse(
         new Response(response.body, { status: response.status, headers }),
         (bytes) => {
+          // Content-free event for Workers Logs; a telemetry failure never affects the response.
+          try {
+            logEvent(
+              requestEvent(request, response, {
+                started: performance.now() - started,
+                queries,
+                bytes,
+              }),
+            );
+          } catch {
+            // Never log anything that failed validation.
+          }
           ctx.waitUntil(
             (async () => {
               try {

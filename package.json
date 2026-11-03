@@ -17,9 +17,12 @@
     "format:check": "prettier --check \"packages/**/*.ts\" \"tools/**/*.ts\" package.json tsconfig.json \"tools/campaign-simulator/web/*\" \"apps/**/*.{ts,tsx,css,html,json}\"",
     "demo": "node --import tsx tools/campaign-simulator/src/server.ts",
     "dev": "node --import tsx tools/local-shell/dev.ts",
-    "build": "npm run build --workspace @outreach/dashboard"
+    "build": "npm run build --workspace @outreach/dashboard",
+    "test:a11y": "playwright test -c tools/accessibility/playwright.config.ts"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.64.1",
     "@types/node": "26.6.5",
     "prettier": "3.9.10",
     "tsx": "4.23.15",

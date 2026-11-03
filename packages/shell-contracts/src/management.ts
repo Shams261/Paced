@@ -188,9 +188,18 @@ export interface QuotaStatus {
   growthAllowed: boolean;
   reasons: string[];
   meters: QuotaMeter[];
-  recovery: { state: string; note: string };
+  recovery: { state: string; note: string; lastBackupAt?: string | null };
   totalProspects: number;
   totalCampaigns: number;
+  health?: {
+    oldestDueAt: string | null;
+    dueCount: number;
+    heldCount: number;
+    waitingCount: number;
+    uncertainSends: number;
+    unknownOutcomes: number;
+    executors: string;
+  };
 }
 export interface DeletionSummary {
   deleted: true;

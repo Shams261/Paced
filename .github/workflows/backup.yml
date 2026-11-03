@@ -33,3 +33,10 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/backup.py --target development
+
+      - name: Operator health check
+        if: always()
+        env:
+          PACED_BACKUP_DB_PASSWORD: ${{ secrets.PACED_BACKUP_DB_PASSWORD }}
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/pilot_status.py --target development --strict

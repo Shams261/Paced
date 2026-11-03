@@ -106,6 +106,7 @@ npm test                                  # Vitest: engine, API and dashboard
 npm run format:check                      # Prettier
 VITE_HOSTED_AUTH=1 npm run build          # hosted dashboard bundle
 python3 -m unittest discover -s tests -v  # script guards
+npm run test:a11y                         # Playwright + axe accessibility checks on the built dashboard
 ```
 
 Database integration tests run against a dedicated, disposable test project. They are kept separate from `npm test`. See [Database](#database).
@@ -160,7 +161,7 @@ Worker secrets are managed with `wrangler secret`: token encryption keys, the CS
 | Prospects, lists, drafts, approval, pause/stop (fictional data) | Done, hosted |
 | Export, workspace deletion, quota meters | Done, hosted |
 | Encrypted off-site backups and restore drill | Implemented; first scheduled runs pending |
-| Monitoring, incident runbook, accessibility review | Planned |
+| Monitoring, incident runbook, accessibility checks | Done |
 | Regional load test (India and North America) | Planned |
 | Browser extension: read LinkedIn pages | Not started; feasibility unproven |
 | Sending invitations and messages | Not started; disabled by design |
@@ -178,6 +179,7 @@ LinkedIn's user agreement restricts automated activity. Any future browser integ
 | Topic | Location |
 | --- | --- |
 | Product scope | [docs/product/brief.md](docs/product/brief.md) |
+| Operations runbook | [docs/engineering/operations-runbook.md](docs/engineering/operations-runbook.md) |
 | Architecture overview | [docs/architecture/README.md](docs/architecture/README.md) |
 | Architecture decision records | [docs/decisions/README.md](docs/decisions/README.md) |
 | Database workflow | [docs/engineering/database.md](docs/engineering/database.md) |

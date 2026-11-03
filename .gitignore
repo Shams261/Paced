@@ -10,3 +10,7 @@ __pycache__/
 node_modules/
 coverage/
 dist/
+
+# Playwright accessibility run artifacts
+test-results/
+playwright-report/

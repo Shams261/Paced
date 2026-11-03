@@ -1,6 +1,6 @@
 # Pilot data lifecycle and operational gates
 
-Status: export, workspace deletion, quota meters and the encrypted backup pipeline with its restore drill are implemented. Monitoring, capacity measurement and accessibility review are designed but not yet built. Last updated 3 November 2026.
+Status: export, workspace deletion, quota meters, the encrypted backup pipeline with its restore drill, content-free monitoring with an operator health check and runbook, and automated accessibility checks are implemented. Capacity measurement and the closure gate remain. Last updated 3 November 2026.
 
 ## Problem and boundaries
 
@@ -43,9 +43,9 @@ Both Supabase projects run PostgreSQL 17, so backup and restore tooling needs Po
 | B. Deletion | Reauthenticated deletion that fences execution, revokes sessions, removes product data and writes a tombstone; Auth identity removed by the operator within seven days | None | Database transaction and resurrection tests, hosted smoke on a disposable test workspace | Implemented |
 | C. Backup, ledger, restore | Daily encrypted PostgreSQL dump to R2 from a scheduled CI job, separate encrypted deletion ledger, timed isolated restore that applies tombstones and starts held | Private repository, R2 bucket, GPG keys | Backup log rows, checksum verification, restore timing, deleted fixture absent after restore | Implemented |
 | D. Quotas and meters | Database, request and egress meters; warn at 60 percent, deny growth at 70 percent; stop, export and delete always allowed | None | Synthetic fault tests, API tests for blocked growth, UI shows the reason | Implemented |
-| E. Monitoring and runbook | Content-free Workers Logs, operator status command, incident runbook with a named operator | D | Status output, log inspection showing no identifiers or message text, reviewed runbook | Planned |
+| E. Monitoring and runbook | Content-free Workers Logs, operator health check in CI and on the operator machine, queue health in the dashboard, incident runbook | D | Health output, telemetry tests that reject content, runbook | Implemented |
 | F. Capacity and latency | Separate test deployment, synthetic dataset, 30-minute steady workload from North America and India | Test deployment, regional clients | p50/p95/p99, errors, CPU, storage and egress against NFR targets | Planned |
-| G. Accessibility | Keyboard and automated accessibility checks on core flows, plus a screen-reader pass | None | Playwright and axe results, manual checklist | Planned |
+| G. Accessibility | Keyboard and automated accessibility checks on core flows, plus a screen-reader pass | None | Playwright and axe results, manual checklist | Implemented; owner screen-reader pass done |
 | H. Closure | Hosted foundation closed against actual evidence; a failed gate lowers the admission limit explicitly instead of waiving the requirement | A–G | Updated project records | Planned |
 
 ## Implemented design
@@ -145,18 +145,19 @@ Known limits: a restore into a fresh Supabase project recreates workspace owners
 
 ### Monitoring and runbook
 
-Workers Logs will be enabled with content-free events only: request ID, route, status, duration, SQL count and bounded reason codes. A test will reject forbidden fields.
+Workers Logs are enabled with full head sampling and **invocation logs disabled**, so the provider never receives request URLs, query strings, headers or bodies. The Worker emits one JSON line per request through `apps/api/src/telemetry.ts`: request ID, a route name from a fixed list (anything else is `other`), method, status, duration, SQL call count and response bytes. The logger refuses events with unknown fields, wrong types or free text, and a telemetry failure never affects a response. Provider retention is three days on the Free plan.
 
-An operator status command will report several values:
-- error rate
-- oldest due action
-- uncertain outcomes
-- meters
-- backup age
+Migration 0013 adds two read-only reports. `sequence_private.workspace_health(w)` returns a tenant's due, waiting and held counts, uncertain sends and unknown outcomes; the `status` management operation includes it and the dashboard shows it as a queue line. `sequence_private.operator_health()` returns the pilot-wide picture (meters, recovery, request counts, denials and provider failures in the last five minutes, uncertain outcomes, oldest due action, held sequences, pending identity removals with their seven-day due dates, provider reading ages) with no names, emails or text, and is executable by the backup role so that CI can read it without operator credentials.
 
-The runbook covers daily checks, the NFR alert thresholds, and the response to a missed backup, a quota warning, an uncertain send or a provider outage.
+`scripts/pilot_status.py` reads that report as the backup role and applies the NFR thresholds: alerts for a missing or stale backup, a meter at deny or unverified, a provider reading older than seven days or missing, any uncertain send outcome, an identity removal past its seven-day deadline and 20 or more denials in five minutes; warnings for meters at 60 percent, readings older than five days, recent provider failures, pending identity removals and due work with no executor. The backup workflow runs it daily after the backup with `--strict`, so any alert fails the job and GitHub emails the owner. The [operations runbook](../engineering/operations-runbook.md) describes the daily and weekly checks and the response to each alert and incident.
+
+### Accessibility
+
+`npm run test:a11y` runs Playwright with axe-core against the built hosted dashboard. Every request, including the static assets, is served from the build output through in-page routing, so the suite opens no listener. The checks cover the sign-in page, the admitted workspace, import preview and confirmation, draft editing, exact review and approval, pause and stop, progress states, export, the deletion flow with a stale sign-in, and the service-outage state. Each state is analyzed against the WCAG 2.0, 2.1 and 2.2 A and AA rule tags; serious or critical violations fail the test and lower-impact ones are printed. Every action is performed through the keyboard, and focused controls must show a visible outline or focus ring. One finding was fixed during the first run: the campaign selector's label wrapped the control, so its accessible name included every option; it now uses an explicit label association. The owner completed a manual VoiceOver pass of the same flows and reported no defects.
 
 ### Capacity and latency
+
+Measured risk, 3 November 2026: a six-request `wrangler tail` sample after the slice E release showed 7 to 14 ms of CPU per invocation, including 10 to 12 ms for the session route that makes no database call. The NFR target is a p95 of 5 ms and the Free plan limit is 10 ms. The likely cause is that the Worker rebuilds the Hono application, database client, JWKS fetcher and token vault on every request. Slice F starts by caching the stateless parts per isolate and measuring again before any load test.
 
 The production Worker is bound to the development project, so load testing uses a second private Worker and Pages project. These are bound to the isolated test project with their own Hyperdrive configuration and secrets.
 

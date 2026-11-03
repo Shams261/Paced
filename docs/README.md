@@ -8,6 +8,7 @@
 | Decisions and their rationale | [Architecture decision records](decisions/README.md) |
 | Hosted database, migrations and integration tests | [Database guide](engineering/database.md) |
 | Export file format | [Export format](engineering/export-format.md) |
+| Daily operation, alerts and incidents | [Operations runbook](engineering/operations-runbook.md) |
 | Local dashboard and fixture API | [Local shell](engineering/local-shell.md) |
 | Synthetic campaign simulator | [Simulator guide](engineering/campaign-simulator.md) |
 

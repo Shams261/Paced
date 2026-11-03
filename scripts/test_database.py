@@ -282,6 +282,8 @@ def main():
     lifecycle_checks()
     from test_backup import integration as backup_checks
     backup_checks()
+    from test_health import integration as health_checks
+    health_checks()
     auth_sessions()
     auth_controls()
     refresh_race()
