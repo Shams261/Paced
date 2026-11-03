@@ -128,7 +128,16 @@ Operator tools:
 ```bash
 python3 scripts/pilot_access.py inspect --target development --user <uuid>
 python3 scripts/pilot_meters.py show    --target development
+python3 scripts/backup_role.py verify   --target development
 ```
+
+### Backups
+
+A scheduled GitHub Actions workflow (`.github/workflows/backup.yml`) runs `scripts/backup.py` once a day. It connects as a SELECT-only database role, takes a data-only `pg_dump` of the application tables (never sessions, login transactions or rate-limit counters), adds a minimal identity list and metadata, encrypts the archive with the backup GPG public key and uploads it to a Cloudflare R2 bucket. Deletion tombstones go to a separate encrypted ledger object under its own key. Seven daily backups are kept. Each run records a row in the backup log, which the dashboard shows as the recovery state.
+
+The workflow needs three repository secrets: `PACED_BACKUP_DB_PASSWORD`, `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`. Public keys live in `supabase/backup-keys/`; private keys never leave the operator.
+
+`scripts/restore_drill.py` restores the latest backup into the isolated test project, applies the deletion ledger, holds every sequence for reconciliation, validates counts and row-level security, and records the elapsed time. Run it with `--confirm-test-project <test-project-ref>`; it needs the operator's private keys and R2 credentials in `.local/`.
 
 More detail is in the [database guide](docs/engineering/database.md).
 
@@ -149,8 +158,8 @@ Worker secrets are managed with `wrangler secret`: token encryption keys, the CS
 | --- | --- |
 | Google sign-in, admission, sessions, revocation | Done, hosted |
 | Prospects, lists, drafts, approval, pause/stop (fictional data) | Done, hosted |
-| Export, workspace deletion, quota meters | Implemented and tested, release pending |
-| Encrypted off-site backups and restore drill | Planned |
+| Export, workspace deletion, quota meters | Done, hosted |
+| Encrypted off-site backups and restore drill | Implemented; first scheduled runs pending |
 | Monitoring, incident runbook, accessibility review | Planned |
 | Regional load test (India and North America) | Planned |
 | Browser extension: read LinkedIn pages | Not started; feasibility unproven |

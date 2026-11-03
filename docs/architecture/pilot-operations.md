@@ -1,6 +1,6 @@
 # Pilot data lifecycle and operational gates
 
-Status: export, workspace deletion and quota meters are implemented. Backups, monitoring, capacity measurement and accessibility review are designed but not yet built. Last updated 20 October 2026.
+Status: export, workspace deletion, quota meters and the encrypted backup pipeline with its restore drill are implemented. Monitoring, capacity measurement and accessibility review are designed but not yet built. Last updated 3 November 2026.
 
 ## Problem and boundaries
 
@@ -41,7 +41,7 @@ Both Supabase projects run PostgreSQL 17, so backup and restore tooling needs Po
 | --- | --- | --- | --- | --- |
 | A. Export | Authenticated, tenant-scoped export streamed as newline-delimited JSON; no stored artifact | None | API and contract tests, database ownership tests, owner download of the synthetic workspace, [format document](../engineering/export-format.md) | Implemented |
 | B. Deletion | Reauthenticated deletion that fences execution, revokes sessions, removes product data and writes a tombstone; Auth identity removed by the operator within seven days | None | Database transaction and resurrection tests, hosted smoke on a disposable test workspace | Implemented |
-| C. Backup, ledger, restore | Daily encrypted PostgreSQL dump to R2 from a scheduled CI job, separate encrypted deletion ledger, timed isolated restore that applies tombstones and starts paused | Private repository, R2 bucket, GPG keys | Backup log rows, checksum verification, restore timing, deleted fixture absent after restore | Planned |
+| C. Backup, ledger, restore | Daily encrypted PostgreSQL dump to R2 from a scheduled CI job, separate encrypted deletion ledger, timed isolated restore that applies tombstones and starts held | Private repository, R2 bucket, GPG keys | Backup log rows, checksum verification, restore timing, deleted fixture absent after restore | Implemented |
 | D. Quotas and meters | Database, request and egress meters; warn at 60 percent, deny growth at 70 percent; stop, export and delete always allowed | None | Synthetic fault tests, API tests for blocked growth, UI shows the reason | Implemented |
 | E. Monitoring and runbook | Content-free Workers Logs, operator status command, incident runbook with a named operator | D | Status output, log inspection showing no identifiers or message text, reviewed runbook | Planned |
 | F. Capacity and latency | Separate test deployment, synthetic dataset, 30-minute steady workload from North America and India | Test deployment, regional clients | p50/p95/p99, errors, CPU, storage and egress against NFR targets | Planned |
@@ -125,23 +125,23 @@ The hard limits of 100 users and 1,000 prospects per account remain transactiona
 
 ### Backup, ledger and restore
 
-A scheduled CI workflow runs a backup script once a day with PostgreSQL 17 client tools. A forward migration will add a `sequence_backup` role with SELECT-only access to the application schemas and INSERT on a `backup_log` table. The CI workflow holds three kinds of secrets:
-- that role's password
-- a bucket-scoped R2 token with Object Read & Write only
-- two GPG public keys
+Migration 0012 creates `sequence_backup`, a SELECT-only role with a permissive read policy on every backed-up table and no grant on sessions, login transactions or rate-limit counters. The operator enables its login once per project; the password is stored only in an ignored local file and in the CI secret. The role cannot write, cannot run operator functions and has no dangerous attributes (tested).
 
-Each run does the following:
-1. Takes a custom-format `pg_dump` of the application schemas, excluding the tombstone table, plus the Auth identity rows needed to relink admission.
-2. Records the SHA-256 checksum, size and migration version.
-3. Encrypts the dump with the backup key and uploads it under a dated `backups/` prefix.
-4. Appends new tombstones to an encrypted object under `ledger/`, using a separate ledger key.
-5. Writes a `backup_log` row.
+A scheduled GitHub Actions workflow runs `scripts/backup.py` daily at 03:23 UTC (not on the hour, to avoid scheduler delays). Each run does the following:
+1. Preflight: confirms the project marker, that the connected user is `sequence_backup`, and reads the latest migration version. Row counts of the main tables are captured.
+2. `pg_dump -Fc --data-only --enable-row-security` of `public.seq_*` and `sequence_private.*`, excluding `deletion_tombstones`, `auth_sessions`, `login_transactions` and `auth_rate_limits`.
+3. Minimal identity rows through `sequence_private.backup_identities()`: user ID, email, confirmation flag, admission flag and creation time. No password hashes, tokens or provider data.
+4. All deletion tombstones as newline-delimited JSON for the ledger.
+5. `metadata.json` with format version, generation time, project, migration version, dump checksum and size, excluded tables and counts.
+6. A tar of metadata, identities and dump, encrypted with GPG to the backup public key; the ledger encrypted separately to the ledger public key. Public keys are committed in `supabase/backup-keys/` and their fingerprints are pinned in the script.
+7. Upload to R2 under `backups/<stamp>.tar.gpg` and `ledger/<stamp>.jsonl.gpg`, plus a plaintext `backups/latest.json` pointer with key, checksum, size and versions. Objects older than seven days under `backups/` are deleted; ledger objects are kept.
+8. `sequence_private.backup_record` writes the backup log row with the object key, checksum, size, migration version, counts and duration.
 
-Seven rolling days are kept. A failed run notifies the operator, and a backup older than 24 hours marks recovery as degraded and blocks growth.
+The R2 client is a small Signature Version 4 implementation on the standard library, verified against the published AWS example signature. A failed run notifies the owner through GitHub. Deletion now records the latest backup time as `backup_cutoff` on the tombstone, so the ledger names which backups still hold the data.
 
-The restore drill runs on the operator's machine with the private keys. It restores into the isolated test project behind the existing rebuild guard, replays newer migrations and applies the ledger before any access. It then validates grants, row-level security and checksums with the integration suite, starts globally paused, and records the elapsed time. The drill passes within four hours if the deleted fixture is absent.
+`scripts/restore_drill.py` is operator-only and targets the isolated test project exclusively. It downloads the latest backup, verifies the checksum, decrypts it with the operator's private key (the passphrase is entered in the terminal, never in the script), extracts and verifies the inner dump checksum, downloads and decrypts the newest ledger, rebuilds the empty test schema, replays migrations, inserts synthetic Auth rows for the identities so ownership foreign keys hold, restores tables in parent-to-child order with user triggers disabled for the copy (the operator is not a superuser, so internal foreign-key triggers stay on), applies the ledger with `sequence_private.apply_deletion_ledger`, calls `sequence_private.restore_finalize` (every nonterminal sequence held with reason `restore-reconciliation`, unexecuted actions cancelled, fences bumped, sessions revoked), validates counts, row-level security and the absence of deleted workspaces, records a `restore-drill` backup log row with step timings and the elapsed time against the four-hour target, and returns the test project to its empty migrated state.
 
-Private keys are held in the operator's password manager, with one offline recovery copy.
+Known limits: a restore into a fresh Supabase project recreates workspace ownership by user ID but not Google provider links, so users would be re-admitted by the operator after a real recovery; a dump older than the current schema restores only if no restored column was dropped since.
 
 ### Monitoring and runbook
 
@@ -189,7 +189,7 @@ The earlier NFR proposed 14-day technical logs. The implemented policy supersede
 | Workers platform logs (content-free) | Three days, provider-managed |
 | Aggregate usage counters | 90 days |
 | Management idempotency records | With the workspace; removed on deletion |
-| Deletion tombstones | Until every backup that contains the workspace has expired |
+| Deletion tombstones | Until every backup that contains the workspace has expired; `backup_cutoff` records the last backup before deletion |
 
 No log category retains names, profile URLs, message text, tokens or callback queries.
 
@@ -201,6 +201,8 @@ No log category retains names, profile URLs, message text, tokens or callback qu
 | Deleting Auth users from the Worker widens its privilege | Service-role key in the Worker | Operator-only function with a seven-day target |
 | In-database tombstones would be inside the backup | A separate project for the ledger | Exclude the table from dumps; the off-site ledger is authoritative during restore |
 | Laptop-scheduled backups can be missed | launchd on the operator machine | Scheduled CI with a SELECT-only role and a bucket-scoped token |
+| `pg_restore --disable-triggers` needs a superuser, which the operator is not | Grant superuser or bypass RLS | Restore parents before children and disable only user triggers during the copy |
+| `pg_dump` refuses tables whose rows RLS would filter | A BYPASSRLS backup role (superuser-only to create) | `--enable-row-security` with an explicit read-all policy for the backup role |
 | Load testing against development pollutes data and quota | Bounded load on the real app | A separate test deployment |
 | Workers Logs could leak identifiers | Keep observability disabled | Enable with a content-free helper and a test |
 | The full dataset may not fit 500 MB | A smaller dataset and a quietly lower target | Measure and lower the admission limit explicitly |

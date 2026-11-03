@@ -16,7 +16,21 @@ python3 scripts/database.py migrate --target development
 # Operator quota meters and post-deletion identity removal:
 python3 scripts/pilot_meters.py show --target development
 python3 scripts/pilot_access.py delete-identity --target development --user <uuid> --confirm-project <ref> --confirm-email <email>
+# Backup role (one-time per project), manual backup and restore drill:
+python3 scripts/backup_role.py enable --target development
+python3 scripts/backup_role.py verify --target development
+python3 scripts/backup.py --target development
+python3 scripts/restore_drill.py --confirm-test-project cimyhlakeloysxaquoqg
 ```
+
+## Backup and restore
+
+`sequence_backup` is a SELECT-only role created by migration 0012. It has a read policy on every backed-up table and no access to sessions, login transactions or rate-limit counters. `backup_role.py enable` sets its login password and stores it only in an ignored local file; the same value becomes the `PACED_BACKUP_DB_PASSWORD` repository secret for the scheduled workflow.
+
+`backup.py` takes a data-only dump with row-level security enabled, exports minimal identity rows and the deletion tombstones, encrypts the archive and the ledger with the public keys in `supabase/backup-keys/`, uploads them to R2 under `backups/` and `ledger/`, keeps seven days, and records the result through `sequence_private.backup_record`. The public Supabase CA certificate in `supabase/supabase-ca.crt` verifies TLS. `--local-only` builds the encrypted artifact without uploading or logging.
+
+`restore_drill.py` only ever targets the isolated test project. It downloads and decrypts the latest backup with the operator's keys, rebuilds the empty test schema, replays migrations, inserts synthetic identity rows, restores tables in dependency order with user triggers disabled for the copy, applies the ledger, holds every nonterminal sequence, validates counts and row-level security, records a `restore-drill` row with timings and finally returns the test project to its empty migrated state.
+
 
 Tests require the application schema already migrated, and are intentionally separate from `npm test`. Run one integration test process at a time. The suite briefly inserts two deterministic synthetic users and fixtures, verifies Auth/REST access with temporary generated credentials, and removes only those fixtures. Ordinary SQL cases roll back. Concurrency tests use two actual simultaneous connections. Never put real users in the isolated test project.
 

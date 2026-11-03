@@ -280,6 +280,8 @@ def main():
     management_races()
     from test_lifecycle import integration as lifecycle_checks
     lifecycle_checks()
+    from test_backup import integration as backup_checks
+    backup_checks()
     auth_sessions()
     auth_controls()
     refresh_race()

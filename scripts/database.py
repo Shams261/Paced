@@ -115,7 +115,7 @@ def rebuild_test(target, confirm):
         raise ValueError('Test marker mismatch')
     if execute(target, 'SELECT count(*) FROM public.seq_workspaces;') != '0':
         raise ValueError('Rebuild requires empty application workspace data')
-    private = ['deletion_tombstones','provider_readings','usage_counters','management_requests','auth_audit','auth_rate_limits','login_transactions','auth_sessions','send_reservations','attempt_results','attempts','execution_leases','account_execution_state','logical_actions','enrollments','observations','approval_recipients','approvals','content_revisions','access_allowlist']
+    private = ['backup_log','deletion_tombstones','provider_readings','usage_counters','management_requests','auth_audit','auth_rate_limits','login_transactions','auth_sessions','send_reservations','attempt_results','attempts','execution_leases','account_execution_state','logical_actions','enrollments','observations','approval_recipients','approvals','content_revisions','access_allowlist']
     public = ['list_memberships','campaigns','lists','prospects','accounts','workspaces']
     sql='BEGIN; SELECT pg_advisory_xact_lock(734003);'
     # Recheck inside transaction after serialization against migration/rebuild runners.
@@ -125,7 +125,7 @@ def rebuild_test(target, confirm):
     for fun in ['invalidate_campaign_intent()','invalidate_profile_approval()','guard_action_campaign()']:
         sql+=f'DROP FUNCTION IF EXISTS sequence_private.{fun} RESTRICT;'
     # S3-006 lifecycle objects depend on tombstone/reading row types; remove them before tables.
-    for fun in ['public.seq_delete_workspace(jsonb)','public.seq_export(text,integer)','sequence_private.operator_remove_identity(uuid,uuid)','sequence_private.quota_status()','sequence_private.meter(text,numeric,numeric,timestamptz,numeric,text)','sequence_private.usage_record(bigint)']:
+    for fun in ['sequence_private.restore_finalize(jsonb)','sequence_private.apply_deletion_ledger(jsonb)','sequence_private.backup_record(jsonb)','sequence_private.backup_identities()','public.seq_delete_workspace(jsonb)','public.seq_export(text,integer)','sequence_private.operator_remove_identity(uuid,uuid)','sequence_private.quota_status()','sequence_private.meter(text,numeric,numeric,timestamptz,numeric,text)','sequence_private.usage_record(bigint)']:
         sql+=f'DROP FUNCTION IF EXISTS {fun} RESTRICT;'
     sql += 'DROP FUNCTION IF EXISTS public.seq_manage(text,jsonb) RESTRICT;'
     sql += 'DROP TRIGGER IF EXISTS guard_prospect_capacity ON public.seq_prospects RESTRICT;'
