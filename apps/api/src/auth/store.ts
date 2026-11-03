@@ -41,6 +41,7 @@ export interface AuthControls {
   /** Content-free usage estimate: one request and its response bytes. */
   usage(bytes: number): Promise<void>;
 }
+const verifiedBindings = new Set<string>();
 export function postgresAuthDatabase(
   connectionString: string,
   onQuery: () => void = () => undefined,
@@ -61,15 +62,21 @@ export function postgresAuthDatabase(
     idle_timeout: 5,
   });
   // Hyperdrive uses transport credentials in connectionString. Verify the
-  // actual PostgreSQL role rather than trusting the transport username.
+  // actual PostgreSQL role rather than trusting the transport username. The
+  // binding is fixed for the life of an isolate, so one successful check per
+  // binding is reused instead of spending a query on every request.
+  const bindingKey = `${url.username}@${url.host}${url.pathname}`;
   let verification: Promise<void> | undefined;
   const verifyRole = () =>
-    (verification ??= (async () => {
-      onQuery();
-      const rows =
-        await sql`SELECT current_user AS name, NOT (rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls) AS restricted FROM pg_roles WHERE rolname=current_user`;
-      assertRuntimeRole(rows[0]);
-    })());
+    (verification ??= verifiedBindings.has(bindingKey)
+      ? Promise.resolve()
+      : (async () => {
+          onQuery();
+          const rows =
+            await sql`SELECT current_user AS name, NOT (rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls) AS restricted FROM pg_roles WHERE rolname=current_user`;
+          assertRuntimeRole(rows[0]);
+          verifiedBindings.add(bindingKey);
+        })());
   return {
     database: {
       async invoke(operation, args) {

@@ -3,6 +3,11 @@ import { countedResponse } from "./usage.js";
 import { logEvent, requestEvent } from "./telemetry.js";
 import { GoogleProvider } from "./auth/provider.js";
 import { createAuthApp } from "./auth/routes.js";
+import {
+  scopedControls,
+  scopedDatabase,
+  withConnection,
+} from "./auth/scope.js";
 import { SessionStore, postgresAuthDatabase } from "./auth/store.js";
 import { TokenVault, validOpaque } from "./auth/security.js";
 interface Environment {
@@ -18,7 +23,7 @@ interface Environment {
 interface Context {
   waitUntil(promise: Promise<unknown>): void;
 }
-function dependencies(env: Environment, onQuery: () => void = () => undefined) {
+function validate(env: Environment) {
   if (
     env.APP_ORIGIN !== "https://sequence-dev-etj.pages.dev" ||
     env.SUPABASE_URL !== "https://syisdkvnkbmbsbvchdgb.supabase.co" ||
@@ -27,31 +32,40 @@ function dependencies(env: Environment, onQuery: () => void = () => undefined) {
     !validOpaque(env.IP_HASH_SECRET)
   )
     throw new Error("INVALID_DEPLOYMENT_BINDINGS");
+}
+// The application, provider, vault and gateway hold no request state, so they are
+// built once per isolate. Bindings only change with a deployment, which starts a
+// new isolate; the non-secret fingerprint guards against a reused isolate anyway.
+let cached:
+  { fingerprint: string; app: ReturnType<typeof createAuthApp> } | undefined;
+function application(env: Environment) {
+  validate(env);
+  const fingerprint = [
+    env.APP_ORIGIN,
+    env.SUPABASE_URL,
+    env.SUPABASE_PUBLISHABLE_KEY,
+    env.TOKEN_KEY_VERSION,
+  ].join("|");
+  if (cached?.fingerprint === fingerprint) return cached.app;
   const keys = JSON.parse(env.TOKEN_KEYS) as Record<string, string>;
-  const vault = new TokenVault(keys, env.TOKEN_KEY_VERSION);
-  const connection = postgresAuthDatabase(
-    env.HYPERDRIVE.connectionString,
-    onQuery,
-  );
-  return {
-    connection,
-    app: createAuthApp({
-      management: managementGateway(
-        env.SUPABASE_URL,
-        env.SUPABASE_PUBLISHABLE_KEY,
-      ),
-      origin: env.APP_ORIGIN,
-      csrfSecret: env.CSRF_SECRET,
-      ipHashSecret: env.IP_HASH_SECRET,
-      vault,
-      store: new SessionStore(connection.database),
-      controls: connection.controls,
-      provider: new GoogleProvider(
-        env.SUPABASE_URL,
-        env.SUPABASE_PUBLISHABLE_KEY,
-      ),
-    }),
-  };
+  const app = createAuthApp({
+    management: managementGateway(
+      env.SUPABASE_URL,
+      env.SUPABASE_PUBLISHABLE_KEY,
+    ),
+    origin: env.APP_ORIGIN,
+    csrfSecret: env.CSRF_SECRET,
+    ipHashSecret: env.IP_HASH_SECRET,
+    vault: new TokenVault(keys, env.TOKEN_KEY_VERSION),
+    store: new SessionStore(scopedDatabase),
+    controls: scopedControls,
+    provider: new GoogleProvider(
+      env.SUPABASE_URL,
+      env.SUPABASE_PUBLISHABLE_KEY,
+    ),
+  });
+  cached = { fingerprint, app };
+  return app;
 }
 export default {
   async fetch(
@@ -59,15 +73,21 @@ export default {
     env: Environment,
     ctx: Context,
   ): Promise<Response> {
-    let d: ReturnType<typeof dependencies> | undefined;
+    let close: (() => Promise<void>) | undefined;
     try {
       let queries = 0;
       const started = performance.now();
-      d = dependencies(env, () => {
-        queries++;
-      });
-      const deps = d;
-      const response = await deps.app.fetch(request);
+      const app = application(env);
+      const connection = postgresAuthDatabase(
+        env.HYPERDRIVE.connectionString,
+        () => {
+          queries++;
+        },
+      );
+      close = connection.close;
+      const response = await withConnection(connection, () =>
+        Promise.resolve(app.fetch(request)),
+      );
       const headers = new Headers(response.headers);
       headers.set(
         "Server-Timing",
@@ -93,18 +113,18 @@ export default {
           ctx.waitUntil(
             (async () => {
               try {
-                await deps.connection.controls.usage(bytes);
+                await connection.controls.usage(bytes);
               } catch {
                 // Never fail or delay a response for a usage estimate.
               } finally {
-                await deps.connection.close().catch(() => undefined);
+                await connection.close().catch(() => undefined);
               }
             })(),
           );
         },
       );
     } catch (error) {
-      await d?.connection.close().catch(() => undefined);
+      await close?.().catch(() => undefined);
       const known = new Set([
         "INVALID_DEPLOYMENT_BINDINGS",
         "INVALID_RUNTIME_DATABASE_ROLE",
@@ -128,11 +148,12 @@ export default {
     }
   },
   async scheduled(_event: unknown, env: Environment): Promise<void> {
-    const d = dependencies(env);
+    validate(env);
+    const connection = postgresAuthDatabase(env.HYPERDRIVE.connectionString);
     try {
-      await d.connection.controls.maintain();
+      await connection.controls.maintain();
     } finally {
-      await d.connection.close();
+      await connection.close();
     }
   },
 };

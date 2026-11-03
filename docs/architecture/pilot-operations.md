@@ -157,7 +157,7 @@ Migration 0013 adds two read-only reports. `sequence_private.workspace_health(w)
 
 ### Capacity and latency
 
-Measured risk, 3 November 2026: a six-request `wrangler tail` sample after the slice E release showed 7 to 14 ms of CPU per invocation, including 10 to 12 ms for the session route that makes no database call. The NFR target is a p95 of 5 ms and the Free plan limit is 10 ms. The likely cause is that the Worker rebuilds the Hono application, database client, JWKS fetcher and token vault on every request. Slice F starts by caching the stateless parts per isolate and measuring again before any load test.
+Measured risk, 3 November 2026: a six-request `wrangler tail` sample after the slice E release showed 7 to 14 ms of CPU per invocation, including 10 to 12 ms for the session route that makes no database call. The NFR target is a p95 of 5 ms and the Free plan limit is 10 ms. The likely cause is that the Worker rebuilds the Hono application, database client, JWKS fetcher and token vault on every request. Slice F started by caching the stateless parts per isolate and reusing the role verification; a second sample then showed 3 to 7 ms (median 4.5 ms) on the route without a database call and a median of 9.5 ms on a route with one call, so the remaining cost is the per-request database client handshake, to be reduced or bounded before any load test.
 
 The production Worker is bound to the development project, so load testing uses a second private Worker and Pages project. These are bound to the isolated test project with their own Hyperdrive configuration and secrets.
 
