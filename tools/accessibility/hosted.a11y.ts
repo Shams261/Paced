@@ -2,6 +2,7 @@ import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { encodeSelection } from "../../packages/shell-contracts/src/selection.js";
 
 const dist = join(import.meta.dirname, "../../apps/dashboard/dist");
 const origin = "https://sequence-dev-etj.pages.dev";
@@ -113,6 +114,65 @@ const approval = {
   ],
 };
 
+const selection = {
+  contract: "paced-selection-1" as const,
+  extensionVersion: "0.1.0",
+  capturedAt: "2026-11-04T00:00:00.000Z",
+  pageType: "people-search" as const,
+  self: { profileKey: null, profilePath: "/in/self-example/" },
+  rows: [
+    {
+      profileKey: "urn:li:member:1",
+      profilePath: "/in/ada-example/",
+      displayName: "Ada Example",
+      headline: "Software Engineer at Example Systems",
+      location: "Toronto, Canada",
+      current: "Current: Software Engineer at Example Systems",
+      relationship: "2nd" as const,
+      action: "Connect" as const,
+      missing: [],
+    },
+    {
+      profileKey: null,
+      profilePath: "/in/finn-example/",
+      displayName: "Finn Example",
+      headline: null,
+      location: null,
+      current: null,
+      relationship: "3rd" as const,
+      action: "Follow" as const,
+      missing: ["profileKey", "headline", "location"],
+    },
+  ],
+};
+const externalPreview = {
+  source: "extension-v1",
+  binding: "will-bind",
+  rows: [
+    {
+      profileKey: "urn:li:member:1",
+      displayName: "Ada Example",
+      role: "Software Engineer",
+      company: "Example Systems",
+      location: "Toronto, Canada",
+      connection: "NotConnected",
+      importable: true,
+      reason: null,
+      existing: false,
+    },
+    {
+      profileKey: null,
+      displayName: "Finn Example",
+      role: null,
+      company: null,
+      location: null,
+      connection: "Unknown",
+      importable: false,
+      reason: "no stable identifier",
+      existing: false,
+    },
+  ],
+};
 type Mode = "signed-out" | "admitted" | "outage";
 async function mock(page: Page, mode: Mode) {
   const assets = readdirSync(join(dist, "assets"));
@@ -135,11 +195,15 @@ async function mock(page: Page, mode: Mode) {
             JSON.parse(route.request().postData() ?? "{}").operation ===
               "approval-preview"
           ? json(approval)
-          : json(
-              route.request().method() === "POST"
-                ? { campaignId: "c1", revision: 1 }
-                : snapshot,
-            );
+          : route.request().method() === "POST" &&
+              JSON.parse(route.request().postData() ?? "{}").operation ===
+                "import-preview-external"
+            ? json(externalPreview)
+            : json(
+                route.request().method() === "POST"
+                  ? { campaignId: "c1", revision: 1 }
+                  : snapshot,
+              );
     if (url.pathname === "/api/v1/status") return json(status);
     if (url.pathname === "/api/v1/export")
       return route.fulfill({
@@ -284,4 +348,52 @@ test("service outage: the error state is announced and axe clean", async ({
   await axe(page, "outage");
   await page.getByRole("button", { name: "Reload saved data" }).focus();
   expect(await focusedHasVisibleOutline(page)).toBe("visible");
+});
+
+test("LinkedIn selection: the signed-out notice and the import preview are axe clean and the import completes by keyboard", async ({
+  page,
+}) => {
+  const fragment = `#selection=${encodeSelection(selection)}`;
+  // Signed out: the selection is kept in the tab and the sign-in button is the only action.
+  await mock(page, "signed-out");
+  await page.goto(`${origin}/${fragment}`);
+  await expect(
+    page.getByRole("status").filter({ hasText: /kept in this tab/ }),
+  ).toBeVisible();
+  expect(new URL(page.url()).hash).toBe("");
+  await axe(page, "selection-signed-out");
+  // After sign-in the page loads without the fragment and restores the selection.
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await mock(page, "admitted");
+  await page.goto(`${origin}/`);
+  await expect(page.getByText("Access approved")).toBeVisible();
+  await expect(
+    page.getByRole("group", { name: "Import from LinkedIn selection" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/this import will link your workspace/),
+  ).toBeVisible();
+  // Non-importable rows say why in text, not colour.
+  await expect(
+    page.getByText(/not importable \(no stable identifier\)/),
+  ).toBeVisible();
+  await axe(page, "selection-preview");
+  // Name the list and confirm through the keyboard only.
+  await page.getByLabel("Name for this list").focus();
+  expect(await focusedHasVisibleOutline(page)).toBe("visible");
+  await page.keyboard.type("Keyboard import");
+  const confirm = page.getByRole("button", {
+    name: "Confirm import of 1 people",
+  });
+  await confirm.focus();
+  expect(await focusedHasVisibleOutline(page)).toBe("visible");
+  await page.keyboard.press("Enter");
+  await expect(page.getByText(/Saved by the server/)).toBeVisible();
+  await expect(
+    page.getByRole("group", { name: "Import from LinkedIn selection" }),
+  ).toHaveCount(0);
+  expect(
+    await page.evaluate(() => sessionStorage.getItem("paced.selection")),
+  ).toBeNull();
+  await axe(page, "selection-imported");
 });
