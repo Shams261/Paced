@@ -19,7 +19,8 @@ BACKUP_KEY_FPR = '5DE5637F846663FEEA765CD1474D80DE70A9D191'
 LEDGER_KEY_FPR = 'BD2C79D92E2424AA302358E98F8830F4F7BB582D'
 KEEP_DAYS = 7
 EXCLUDED_TABLES = ('sequence_private.deletion_tombstones', 'sequence_private.auth_sessions',
-                   'sequence_private.login_transactions', 'sequence_private.auth_rate_limits')
+                   'sequence_private.login_transactions', 'sequence_private.auth_rate_limits',
+                   'sequence_private.executors', 'sequence_private.pairing_codes')
 COUNT_TABLES = ('public.seq_workspaces', 'public.seq_prospects', 'public.seq_lists', 'public.seq_campaigns',
                 'sequence_private.enrollments', 'sequence_private.logical_actions', 'sequence_private.approvals')
 

@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { AuthControls, AuthDatabase } from "./store.js";
+import type { AuthControls, AuthDatabase, ExecutorDatabase } from "./store.js";
 /**
  * The Hono application, provider and vault are built once per isolate. Only the
  * database connection is request-scoped; these proxies resolve it from the
@@ -8,6 +8,7 @@ import type { AuthControls, AuthDatabase } from "./store.js";
 export interface RequestConnection {
   database: AuthDatabase;
   controls: AuthControls;
+  executor?: ExecutorDatabase;
 }
 const storage = new AsyncLocalStorage<RequestConnection>();
 function current(): RequestConnection {
@@ -17,6 +18,13 @@ function current(): RequestConnection {
 }
 export const scopedDatabase: AuthDatabase = {
   invoke: async (operation, args) => current().database.invoke(operation, args),
+};
+export const scopedExecutor: ExecutorDatabase = {
+  invoke: async (operation, args) => {
+    const executor = current().executor;
+    if (!executor) throw new Error("NO_EXECUTOR_DATABASE");
+    return executor.invoke(operation, args);
+  },
 };
 export const scopedControls: AuthControls = {
   rate: async (scope, hash) => current().controls.rate(scope, hash),

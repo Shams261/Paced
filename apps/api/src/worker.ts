@@ -6,6 +6,7 @@ import { createAuthApp } from "./auth/routes.js";
 import {
   scopedControls,
   scopedDatabase,
+  scopedExecutor,
   withConnection,
 } from "./auth/scope.js";
 import { SessionStore, postgresAuthDatabase } from "./auth/store.js";
@@ -59,6 +60,7 @@ function application(env: Environment) {
     vault: new TokenVault(keys, env.TOKEN_KEY_VERSION),
     store: new SessionStore(scopedDatabase),
     controls: scopedControls,
+    executors: scopedExecutor,
     provider: new GoogleProvider(
       env.SUPABASE_URL,
       env.SUPABASE_PUBLISHABLE_KEY,

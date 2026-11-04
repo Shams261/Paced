@@ -4,7 +4,7 @@ import {
 } from "../../../packages/shell-contracts/src/management.js";
 export { deleteWorkspaceSchema, managementRequestSchema };
 export type ManagementFunction =
-  "seq_manage" | "seq_export" | "seq_delete_workspace";
+  "seq_manage" | "seq_export" | "seq_delete_workspace" | "seq_executors";
 export interface ManagementGateway {
   /** Parsed `seq_manage` result. */
   call(token: string, operation: string, args: unknown): Promise<unknown>;

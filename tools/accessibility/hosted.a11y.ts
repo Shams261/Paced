@@ -173,6 +173,22 @@ const externalPreview = {
     },
   ],
 };
+const browsers = {
+  executionMode: "disabled",
+  timezone: "Asia/Kolkata",
+  acknowledgedAt: null,
+  bound: true,
+  executors: [
+    {
+      id: "11111111-1111-4111-8111-111111111111",
+      label: "Laptop",
+      adapterVersion: "0.2.0",
+      createdAt: "2026-11-04T10:00:00Z",
+      lastSeenAt: null,
+      revokedAt: null,
+    },
+  ],
+};
 type Mode = "signed-out" | "admitted" | "outage";
 async function mock(page: Page, mode: Mode) {
   const assets = readdirSync(join(dist, "assets"));
@@ -205,6 +221,11 @@ async function mock(page: Page, mode: Mode) {
                   : snapshot,
               );
     if (url.pathname === "/api/v1/status") return json(status);
+    if (url.pathname === "/api/v1/executors")
+      return route.request().method() === "POST" &&
+        JSON.parse(route.request().postData() ?? "{}").operation === "pair-code"
+        ? json({ code: "ABCD2345", expiresAt: "2026-11-04T10:05:00Z" })
+        : json(browsers);
     if (url.pathname === "/api/v1/export")
       return route.fulfill({
         status: 200,
@@ -291,6 +312,14 @@ test("admitted workspace: import preview, draft, review, approve, pause, stop, e
   await page.getByRole("button", { name: "Confirm import" }).focus();
   await page.keyboard.press("Enter");
   await expect(page.getByText(/Saved by the server/)).toBeVisible();
+  // Connected browsers: generate a pairing code through the keyboard and read it as a status.
+  await page.getByRole("button", { name: "Generate pairing code" }).focus();
+  expect(await focusedHasVisibleOutline(page)).toBe("visible");
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("status").filter({ hasText: "ABCD2345" }),
+  ).toBeVisible();
+  await axe(page, "browsers");
   // Draft: select a campaign with the keyboard, edit the first message, save.
   await page.getByLabel("Campaign", { exact: true }).focus();
   await page.getByLabel("Campaign", { exact: true }).selectOption("c1");

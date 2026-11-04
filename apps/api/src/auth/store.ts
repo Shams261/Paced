@@ -31,6 +31,14 @@ export interface AuthDatabase {
     args: Record<string, unknown>,
   ): Promise<unknown>;
 }
+export type ExecutorOperation = "pair" | "heartbeat" | "watchlist" | "observe";
+/** Paired-browser operations; the runtime role reaches one narrow function with a token hash. */
+export interface ExecutorDatabase {
+  invoke(
+    operation: ExecutorOperation,
+    args: Record<string, unknown>,
+  ): Promise<unknown>;
+}
 export interface AuthControls {
   rate(scope: "login" | "callback" | "session", hash: string): Promise<number>;
   event(
@@ -48,6 +56,7 @@ export function postgresAuthDatabase(
 ): {
   database: AuthDatabase;
   controls: AuthControls;
+  executor: ExecutorDatabase;
   close: () => Promise<void>;
 } {
   // Hyperdrive supplies a restricted-role connection. Do not use operator credentials here.
@@ -84,6 +93,15 @@ export function postgresAuthDatabase(
         onQuery();
         const rows =
           await sql`SELECT sequence_private.auth_session_operation(${operation}, ${sql.json(args as postgres.JSONValue)}) AS result`;
+        return rows[0]?.result ?? null;
+      },
+    },
+    executor: {
+      async invoke(operation, args) {
+        await verifyRole();
+        onQuery();
+        const rows =
+          await sql`SELECT sequence_private.executor_operation(${operation}, ${sql.json(args as postgres.JSONValue)}) AS result`;
         return rows[0]?.result ?? null;
       },
     },

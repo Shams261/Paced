@@ -478,3 +478,121 @@ it("refuses to confirm a selection from a different LinkedIn account", async () 
     ).disabled,
   ).toBe(true);
 });
+
+it("manages paired browsers: pairing code, observation settings with acknowledgement, and disconnect", async () => {
+  const view = {
+    executionMode: "disabled",
+    timezone: null,
+    acknowledgedAt: null,
+    bound: true,
+    executors: [
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        label: "Laptop",
+        adapterVersion: "0.2.0",
+        createdAt: "2026-11-04T10:00:00Z",
+        lastSeenAt: null,
+        revokedAt: null,
+      },
+    ],
+  };
+  const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/api/v1/executors" && (!init || init.method !== "POST"))
+      return response(view);
+    if (url === "/api/v1/executors") {
+      const body = JSON.parse(init!.body as string);
+      if (body.operation === "pair-code")
+        return response({
+          code: "ABCD2345",
+          expiresAt: "2026-11-04T10:05:00Z",
+        });
+      if (body.operation === "settings")
+        return response({
+          ...view,
+          executionMode: body.executionMode,
+          timezone: body.timezone,
+          acknowledgedAt: "2026-11-04T10:01:00Z",
+        });
+      if (body.operation === "revoke") return response({ revoked: true });
+    }
+    return response(snapshot);
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <ManagementApp
+      csrfToken="synthetic-csrf"
+      onAccessLost={() => undefined}
+      onDeleted={() => undefined}
+    />,
+  );
+  await screen.findByText(/Laptop — version 0.2.0 — last seen never/);
+  const on = screen.getByRole("button", { name: "Turn observation on" });
+  expect((on as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText("Account timezone"), {
+    target: { value: "Asia/Kolkata" },
+  });
+  fireEvent.click(screen.getByLabelText(/I understand that the extension/));
+  expect((on as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(on);
+  await screen.findByText("Saved by the server.");
+  const settings = fetcher.mock.calls.find(
+    ([, init]) =>
+      init?.method === "POST" &&
+      JSON.parse(init.body as string).operation === "settings",
+  );
+  expect(JSON.parse(settings![1]!.body as string)).toEqual({
+    operation: "settings",
+    timezone: "Asia/Kolkata",
+    executionMode: "observe",
+    acknowledged: true,
+  });
+  expect(settings![1]!.headers).toMatchObject({
+    "X-CSRF-Token": "synthetic-csrf",
+  });
+  await waitFor(() => expect(screen.getByText("on")).toBeTruthy());
+  fireEvent.click(
+    screen.getByRole("button", { name: "Generate pairing code" }),
+  );
+  await screen.findByText("ABCD2345");
+  fireEvent.click(screen.getByRole("button", { name: "Disconnect Laptop" }));
+  await screen.findByText(/Browser disconnected/);
+  const revoke = fetcher.mock.calls.find(
+    ([, init]) =>
+      init?.method === "POST" &&
+      JSON.parse(init.body as string).operation === "revoke",
+  );
+  expect(JSON.parse(revoke![1]!.body as string).executorId).toBe(
+    "11111111-1111-4111-8111-111111111111",
+  );
+});
+it("explains a refused observation setting without claiming it was saved", async () => {
+  const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/api/v1/executors" && (!init || init.method !== "POST"))
+      return response({
+        executionMode: "disabled",
+        timezone: null,
+        acknowledgedAt: null,
+        bound: true,
+        executors: [],
+      });
+    if (url === "/api/v1/executors")
+      return response({ error: "INVALID_EXECUTOR_REQUEST" }, 400);
+    return response(snapshot);
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <ManagementApp
+      csrfToken="synthetic-csrf"
+      onAccessLost={() => undefined}
+      onDeleted={() => undefined}
+    />,
+  );
+  await screen.findByText("No browser is paired yet.");
+  fireEvent.change(screen.getByLabelText("Account timezone"), {
+    target: { value: "Mars/Olympus" },
+  });
+  fireEvent.click(screen.getByLabelText(/I understand that the extension/));
+  fireEvent.click(screen.getByRole("button", { name: "Turn observation on" }));
+  await screen.findByText(/Not saved: observation needs/);
+  expect(screen.queryByText("Saved by the server.")).toBeNull();
+});

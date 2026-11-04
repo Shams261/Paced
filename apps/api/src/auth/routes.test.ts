@@ -73,8 +73,13 @@ async function fixture() {
         ) => Promise<Response>
       >(),
   };
+  const executors = {
+    invoke:
+      vi.fn<(op: string, args: Record<string, unknown>) => Promise<unknown>>(),
+  };
   const app = createAuthApp({
     management,
+    executors,
     origin,
     csrfSecret,
     ipHashSecret: opaqueToken(),
@@ -92,6 +97,7 @@ async function fixture() {
   };
   return {
     management,
+    executors,
     request,
     headers,
     cookie,
@@ -484,4 +490,168 @@ it("deletes a workspace only with CSRF, exact confirmation and a fresh sign-in",
     "revoke",
     expect.objectContaining({ hash: f.hash }),
   );
+});
+
+const extensionOrigin = "chrome-extension://" + "a".repeat(32);
+it("pairs an extension with a one-time code and returns a device token the server never stores in clear", async () => {
+  const f = await fixture();
+  f.executors.invoke.mockResolvedValueOnce({
+    executorId: "x1",
+    executionMode: "disabled",
+    accountIdentity: "linkedin:path:/in/self/",
+  });
+  const response = await f.request("/api/executor/pair", {
+    method: "POST",
+    headers: {
+      Origin: extensionOrigin,
+      "Content-Type": "application/json",
+      "X-Sequence-Client-IP": "127.0.0.1",
+    },
+    body: JSON.stringify({ code: " abcd2345 ", adapterVersion: "0.2.0" }),
+  });
+  expect(response.status).toBe(200);
+  expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+    extensionOrigin,
+  );
+  const body = (await response.json()) as { token: string; executorId: string };
+  expect(body.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  expect(body.executorId).toBe("x1");
+  const [op, args] = f.executors.invoke.mock.calls[0]!;
+  expect(op).toBe("pair");
+  expect(args.codeHash).toBe(await digest("ABCD2345"));
+  expect(args.tokenHash).toBe(await digest(body.token));
+  expect(JSON.stringify(args)).not.toContain(body.token);
+});
+it("rejects an unknown, used or expired pairing code and malformed pairing requests", async () => {
+  const f = await fixture();
+  f.executors.invoke.mockResolvedValueOnce(null);
+  const headers = {
+    Origin: extensionOrigin,
+    "Content-Type": "application/json",
+    "X-Sequence-Client-IP": "127.0.0.1",
+  };
+  const rejected = await f.request("/api/executor/pair", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ code: "ABCD2345", adapterVersion: "0.2.0" }),
+  });
+  expect(rejected.status).toBe(403);
+  expect(await rejected.json()).toEqual({ error: "PAIRING_REJECTED" });
+  const malformed = await f.request("/api/executor/pair", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ code: "ABC", adapterVersion: "0.2.0" }),
+  });
+  expect(malformed.status).toBe(400);
+  expect(f.executors.invoke).toHaveBeenCalledTimes(1);
+});
+it("authenticates executor calls with the device token only and maps revocation and identity mismatch", async () => {
+  const f = await fixture();
+  const token = opaqueToken();
+  const headers = {
+    Origin: extensionOrigin,
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+  const self = { profileKey: null, profilePath: "/in/self/" };
+  const missing = await f.request("/api/executor/heartbeat", {
+    method: "POST",
+    headers: { ...headers, Authorization: "" },
+    body: JSON.stringify({ adapterVersion: "0.2.0", self }),
+  });
+  expect(missing.status).toBe(401);
+  f.executors.invoke.mockResolvedValueOnce({
+    executorId: "x1",
+    executionMode: "observe",
+    identity: "match",
+    pollSeconds: 300,
+  });
+  const beat = await f.request("/api/executor/heartbeat", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ adapterVersion: "0.2.0", self }),
+  });
+  expect(beat.status).toBe(200);
+  expect(f.executors.invoke.mock.calls[0]![1].tokenHash).toBe(
+    await digest(token),
+  );
+  f.executors.invoke.mockResolvedValueOnce(null);
+  const revoked = await f.request("/api/executor/watchlist", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ self }),
+  });
+  expect(revoked.status).toBe(401);
+  expect(await revoked.json()).toEqual({ error: "EXECUTOR_REVOKED" });
+  f.executors.invoke.mockRejectedValueOnce(
+    Object.assign(new Error("denied"), { code: "42501" }),
+  );
+  const mismatch = await f.request("/api/executor/observations", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      self,
+      observations: [
+        {
+          prospectId: crypto.randomUUID(),
+          observedAt: new Date().toISOString(),
+          connection: "Pending",
+          complete: true,
+        },
+      ],
+    }),
+  });
+  expect(mismatch.status).toBe(403);
+  expect(await mismatch.json()).toEqual({ error: "IDENTITY_MISMATCH" });
+});
+it("answers the executor preflight and keeps every other route same-origin", async () => {
+  const f = await fixture();
+  const preflight = await f.request("/api/executor/observations", {
+    method: "OPTIONS",
+    headers: { Origin: extensionOrigin },
+  });
+  expect(preflight.status).toBe(204);
+  expect(preflight.headers.get("Access-Control-Allow-Headers")).toContain(
+    "Authorization",
+  );
+  const denied = await f.request("/api/v1/management", {
+    method: "POST",
+    headers: { ...f.headers, Origin: extensionOrigin },
+    body: "{}",
+  });
+  expect(denied.status).toBe(403);
+  expect(await denied.json()).toEqual({ error: "ORIGIN_DENIED" });
+});
+it("lets the signed-in owner manage paired browsers through the CSRF-guarded executors route", async () => {
+  const f = await fixture();
+  f.record.workspaceId = crypto.randomUUID();
+  f.management.invoke.mockResolvedValueOnce(
+    Response.json({ code: "ABCD2345", expiresAt: "2026-11-04T00:05:00Z" }),
+  );
+  const csrf = await csrfToken(f.csrfSecret, f.hash);
+  const response = await f.request("/api/v1/executors", {
+    method: "POST",
+    headers: {
+      ...f.headers,
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrf,
+    },
+    body: JSON.stringify({ operation: "pair-code", label: "Laptop" }),
+  });
+  expect(response.status).toBe(200);
+  expect((await response.json()).code).toBe("ABCD2345");
+  expect(f.management.invoke).toHaveBeenCalledWith(
+    "private-access",
+    "seq_executors",
+    {
+      operation: "pair-code",
+      args: { label: "Laptop" },
+    },
+  );
+  const noCsrf = await f.request("/api/v1/executors", {
+    method: "POST",
+    headers: { ...f.headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ operation: "list" }),
+  });
+  expect(noCsrf.status).toBe(403);
 });

@@ -10,6 +10,11 @@ const ROUTES = new Set([
   "/api/v1/status",
   "/api/v1/export",
   "/api/v1/delete-workspace",
+  "/api/v1/executors",
+  "/api/executor/pair",
+  "/api/executor/heartbeat",
+  "/api/executor/watchlist",
+  "/api/executor/observations",
 ]);
 export interface RequestEvent {
   requestId: string;

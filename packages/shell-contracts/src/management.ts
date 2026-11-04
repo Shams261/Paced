@@ -175,6 +175,40 @@ export interface ApprovalPreview {
     content: Content;
   }[];
 }
+/** Dashboard requests about paired browsers and execution settings. Observation only in this version. */
+export const executorsRequestSchema = z.discriminatedUnion("operation", [
+  z.strictObject({ operation: z.literal("list") }),
+  z.strictObject({
+    operation: z.literal("pair-code"),
+    label: z.string().trim().max(60).optional(),
+  }),
+  z.strictObject({ operation: z.literal("revoke"), executorId: uuid }),
+  z.strictObject({
+    operation: z.literal("settings"),
+    timezone: z.string().trim().min(1).max(64).nullable(),
+    executionMode: z.enum(["disabled", "observe"]),
+    acknowledged: z.boolean(),
+  }),
+]);
+export type ExecutorsRequest = z.infer<typeof executorsRequestSchema>;
+export interface ExecutorsView {
+  executionMode: "disabled" | "observe";
+  timezone: string | null;
+  acknowledgedAt: string | null;
+  bound: boolean;
+  executors: {
+    id: string;
+    label: string;
+    adapterVersion: string;
+    createdAt: string;
+    lastSeenAt: string | null;
+    revokedAt: string | null;
+  }[];
+}
+export interface PairingCode {
+  code: string;
+  expiresAt: string;
+}
 export const DELETE_CONFIRMATION = "DELETE MY WORKSPACE";
 export const deleteWorkspaceSchema = z.strictObject({
   requestId: uuid,

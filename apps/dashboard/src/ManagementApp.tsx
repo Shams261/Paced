@@ -6,8 +6,11 @@ import {
   type Campaign,
   type Content,
   type DeletionSummary,
+  type ExecutorsRequest,
+  type ExecutorsView,
   type ExternalImportPreview,
   type ManagementRequest,
+  type PairingCode,
   type ManagementSnapshot,
   type QuotaStatus,
 } from "../../../packages/shell-contracts/src/management";
@@ -49,6 +52,11 @@ export function ManagementApp({
   const [external, setExternal] = useState<ExternalImportPreview | null>(null);
   const [externalList, setExternalList] = useState("From LinkedIn search");
   const [externalRequest, setExternalRequest] = useState<string | null>(null);
+  const [browsers, setBrowsers] = useState<ExecutorsView | null>(null);
+  const [pairing, setPairing] = useState<PairingCode | null>(null);
+  const [timezoneInput, setTimezoneInput] = useState("");
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [browsersNotice, setBrowsersNotice] = useState("");
   const alive = useRef(true);
   async function request(body?: ManagementRequest): Promise<unknown> {
     const response = await fetch(
@@ -84,6 +92,80 @@ export function ManagementApp({
       );
     }
     return response.json();
+  }
+  async function browsersCall(body: ExecutorsRequest): Promise<unknown> {
+    const response = await fetch("/api/v1/executors", {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": csrfToken,
+      },
+      body: JSON.stringify(body),
+    });
+    if (response.status === 401 || response.status === 403) {
+      const error = (await response.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      if (error?.error !== "CSRF_DENIED") onAccessLost();
+      throw new Error(error?.error ?? "ACCESS_DENIED");
+    }
+    if (!response.ok) {
+      const error = (await response.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      throw new Error(error?.error ?? "UNAVAILABLE");
+    }
+    return response.json();
+  }
+  async function loadBrowsers() {
+    try {
+      const response = await fetch("/api/v1/executors", {
+        credentials: "same-origin",
+        cache: "no-store",
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) throw new Error("UNAVAILABLE");
+      const view = (await response.json()) as Partial<ExecutorsView> | null;
+      if (!view || !Array.isArray(view.executors) || !view.executionMode)
+        throw new Error("INVALID");
+      if (!alive.current) return;
+      setBrowsers(view as ExecutorsView);
+      setTimezoneInput((current) => current || view.timezone || "");
+      setAcknowledged((current) => current || !!view.acknowledgedAt);
+    } catch {
+      if (alive.current) setBrowsers(null);
+    }
+  }
+  async function runBrowsers(body: ExecutorsRequest) {
+    if (busy) return;
+    setBusy(true);
+    setBrowsersNotice("");
+    try {
+      const result = await browsersCall(body);
+      if (!alive.current) return;
+      if (body.operation === "pair-code") {
+        setPairing(result as PairingCode);
+      } else if (body.operation === "settings") {
+        setBrowsers(result as ExecutorsView);
+        setBrowsersNotice("Saved by the server.");
+      } else if (body.operation === "revoke") {
+        setBrowsersNotice("Browser disconnected. Its token no longer works.");
+        await loadBrowsers();
+      }
+    } catch (error) {
+      if (!alive.current) return;
+      const code = error instanceof Error ? error.message : "";
+      setBrowsersNotice(
+        code === "INVALID_EXECUTOR_REQUEST"
+          ? "Not saved: observation needs an account imported from LinkedIn, a valid timezone such as Asia/Kolkata, and the acknowledgement."
+          : "The browser settings could not be saved. Retry shortly.",
+      );
+    } finally {
+      if (alive.current) setBusy(false);
+    }
   }
   async function loadStatus() {
     try {
@@ -223,6 +305,7 @@ export function ManagementApp({
     alive.current = true;
     void load();
     void loadStatus();
+    void loadBrowsers();
     return () => {
       alive.current = false;
     };
@@ -384,6 +467,106 @@ export function ManagementApp({
         <button disabled={busy} onClick={() => void loadStatus()}>
           Refresh status
         </button>
+      </section>
+      <section aria-label="Connected browsers">
+        <h3>Connected browsers</h3>
+        <p>
+          The Paced extension can record what you see when you open an enrolled
+          person's profile or message thread yourself. It never opens pages,
+          clicks or sends anything. Observation is{" "}
+          <strong>
+            {browsers?.executionMode === "observe" ? "on" : "off"}
+          </strong>
+          .
+        </p>
+        {browsersNotice && <p role="status">{browsersNotice}</p>}
+        {browsers && !browsers.bound && (
+          <p>
+            Import real people from LinkedIn first, so Paced knows which
+            LinkedIn account this workspace uses.
+          </p>
+        )}
+        <label>
+          Account timezone
+          <input
+            value={timezoneInput}
+            placeholder="Asia/Kolkata"
+            maxLength={64}
+            onChange={(e) => setTimezoneInput(e.target.value)}
+          />
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={acknowledged}
+            onChange={(e) => setAcknowledged(e.target.checked)}
+          />
+          I understand that the extension only records pages I open myself and
+          sends nothing to LinkedIn, and that LinkedIn's own rules apply to my
+          account.
+        </label>
+        <button
+          disabled={busy || !browsers?.bound || !timezoneInput || !acknowledged}
+          onClick={() =>
+            void runBrowsers({
+              operation: "settings",
+              timezone: timezoneInput.trim() || null,
+              executionMode: "observe",
+              acknowledged,
+            })
+          }
+        >
+          Turn observation on
+        </button>
+        <button
+          disabled={busy || browsers?.executionMode !== "observe"}
+          onClick={() =>
+            void runBrowsers({
+              operation: "settings",
+              timezone: timezoneInput.trim() || null,
+              executionMode: "disabled",
+              acknowledged,
+            })
+          }
+        >
+          Turn observation off
+        </button>
+        <button
+          disabled={busy || !browsers?.bound}
+          onClick={() => void runBrowsers({ operation: "pair-code" })}
+        >
+          Generate pairing code
+        </button>
+        {pairing && (
+          <p role="status">
+            Pairing code <strong>{pairing.code}</strong>, valid until{" "}
+            {new Date(pairing.expiresAt).toLocaleTimeString()}. Enter it on the
+            extension's options page.
+          </p>
+        )}
+        <ul aria-label="Paired browsers">
+          {browsers?.executors.map((x) => (
+            <li key={x.id}>
+              {x.label || "Browser"} — version {x.adapterVersion} — last seen{" "}
+              {x.lastSeenAt ? new Date(x.lastSeenAt).toLocaleString() : "never"}
+              {x.revokedAt ? (
+                " — disconnected"
+              ) : (
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    void runBrowsers({ operation: "revoke", executorId: x.id })
+                  }
+                >
+                  Disconnect {x.label || "browser"}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+        {browsers && browsers.executors.length === 0 && (
+          <p>No browser is paired yet.</p>
+        )}
       </section>
       {pending && (
         <button disabled={busy} onClick={() => void run(pending)}>

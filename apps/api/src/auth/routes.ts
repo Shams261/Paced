@@ -4,11 +4,24 @@ import {
   ManagementError,
   type ManagementGateway,
 } from "../management.js";
-import { exportSections } from "../../../../packages/shell-contracts/src/management.js";
+import {
+  executorsRequestSchema,
+  exportSections,
+} from "../../../../packages/shell-contracts/src/management.js";
+import {
+  heartbeatRequestSchema,
+  observationsRequestSchema,
+  pairRequestSchema,
+  watchlistRequestSchema,
+} from "../../../../packages/shell-contracts/src/executor.js";
 import { Hono, type Context } from "hono";
 import { AuthenticationRejected, type GoogleProvider } from "./provider.js";
 import { Sessions, type AuthenticatedSession } from "./sessions.js";
-import { SessionStore, type AuthControls } from "./store.js";
+import {
+  SessionStore,
+  type AuthControls,
+  type ExecutorDatabase,
+} from "./store.js";
 import {
   ABSOLUTE_SECONDS,
   LOGIN_COOKIE,
@@ -23,6 +36,7 @@ import {
   readCookie,
   sameOrigin,
   sessionCookie,
+  validOpaque,
 } from "./security.js";
 /** Deletion needs a sign-in no older than this many seconds; the database checks it again. */
 export const FRESH_LOGIN_SECONDS = 300;
@@ -31,6 +45,8 @@ export const AUTH_CSP =
   "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 export interface AuthDependencies {
   management?: ManagementGateway;
+  /** Paired-browser operations; absent in deployments without the executor path. */
+  executors?: ExecutorDatabase;
   origin: string;
   csrfSecret: string;
   ipHashSecret: string;
@@ -80,7 +96,16 @@ export function createAuthApp(d: AuthDependencies) {
     c.header("Referrer-Policy", "no-referrer");
     if (new URL(c.req.url).origin !== origin)
       return c.json({ error: "ORIGIN_DENIED" }, 403);
-    if (c.req.method !== "GET" && !sameOrigin(c.req.raw, origin))
+    // Executor routes carry a device token instead of a browser session, so they
+    // are called from an extension origin; everything else must be same-origin.
+    const executorRoute = new URL(c.req.url).pathname.startsWith(
+      "/api/executor/",
+    );
+    if (
+      c.req.method !== "GET" &&
+      !executorRoute &&
+      !sameOrigin(c.req.raw, origin)
+    )
       return c.json({ error: "ORIGIN_DENIED" }, 403);
     const cookie = readCookie(c.req.raw, SESSION_COOKIE);
     if (cookie) {
@@ -249,6 +274,177 @@ export function createAuthApp(d: AuthDependencies) {
       return c.json({ error: error.code }, error.status);
     return c.json({ error: "STORAGE_UNAVAILABLE" }, 503);
   }
+  app.on(["GET", "POST"], "/api/v1/executors", async (c) => {
+    const session = await admitted(c);
+    if (session instanceof Response) return session;
+    if (!d.management) return c.json({ error: "STORAGE_UNAVAILABLE" }, 503);
+    if (c.req.method === "GET") {
+      try {
+        const response = await d.management.invoke(
+          session.accessToken,
+          "seq_executors",
+          { operation: "list", args: {} },
+        );
+        return c.json(await response.json());
+      } catch (error) {
+        return failed(c, error);
+      }
+    }
+    if (!(await csrfValid(c, session)))
+      return c.json({ error: "CSRF_DENIED" }, 403);
+    const body = await c.req.text();
+    if (new TextEncoder().encode(body).length > 4096)
+      return c.json({ error: "REQUEST_TOO_LARGE" }, 400);
+    let value: unknown;
+    try {
+      value = JSON.parse(body);
+    } catch {
+      return c.json({ error: "INVALID_EXECUTOR_REQUEST" }, 400);
+    }
+    const parsed = executorsRequestSchema.safeParse(value);
+    if (!parsed.success)
+      return c.json({ error: "INVALID_EXECUTOR_REQUEST" }, 400);
+    const { operation, ...args } = parsed.data;
+    try {
+      const response = await d.management.invoke(
+        session.accessToken,
+        "seq_executors",
+        { operation, args },
+      );
+      return c.json(await response.json());
+    } catch (error) {
+      return failed(c, error);
+    }
+  });
+  // Executor routes: a paired browser authenticates with its device token, never with a cookie.
+  // Responses are readable only by an extension origin; the token is the authority.
+  function executorCors(c: Ctx) {
+    const requested = c.req.header("Origin") ?? "";
+    if (/^chrome-extension:\/\/[a-p]{32}$/.test(requested)) {
+      c.header("Access-Control-Allow-Origin", requested);
+      c.header("Vary", "Origin");
+    }
+  }
+  app.options("/api/executor/*", (c) => {
+    executorCors(c);
+    c.header("Access-Control-Allow-Methods", "POST");
+    c.header("Access-Control-Allow-Headers", "Authorization, Content-Type");
+    c.header("Access-Control-Max-Age", "600");
+    return c.body(null, 204);
+  });
+  async function executorBody<T>(
+    c: Ctx,
+    schema: { safeParse(value: unknown): { success: boolean; data?: T } },
+  ): Promise<T | Response> {
+    const body = await c.req.text();
+    if (new TextEncoder().encode(body).length > 65_536)
+      return c.json({ error: "REQUEST_TOO_LARGE" }, 400);
+    let value: unknown;
+    try {
+      value = JSON.parse(body);
+    } catch {
+      return c.json({ error: "INVALID_EXECUTOR_REQUEST" }, 400);
+    }
+    const parsed = schema.safeParse(value);
+    if (!parsed.success || parsed.data === undefined)
+      return c.json({ error: "INVALID_EXECUTOR_REQUEST" }, 400);
+    return parsed.data;
+  }
+  async function executorTokenHash(c: Ctx): Promise<string | Response> {
+    const header = c.req.header("Authorization") ?? "";
+    const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+    if (!validOpaque(token))
+      return c.json({ error: "EXECUTOR_UNAUTHENTICATED" }, 401);
+    return digest(token);
+  }
+  function executorFailed(c: Ctx, error: unknown) {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? String(error.code)
+        : "";
+    if (code === "42501") return c.json({ error: "IDENTITY_MISMATCH" }, 403);
+    if (code === "22023")
+      return c.json({ error: "INVALID_EXECUTOR_REQUEST" }, 400);
+    return c.json({ error: "STORAGE_UNAVAILABLE" }, 503);
+  }
+  app.post("/api/executor/pair", async (c) => {
+    executorCors(c);
+    if (!d.executors) return c.json({ error: "STORAGE_UNAVAILABLE" }, 503);
+    const retry = await ipRate(c.req.raw, "login");
+    if (retry) {
+      c.header("Retry-After", String(retry));
+      return c.json({ error: "RATE_LIMITED" }, 429);
+    }
+    const body = await executorBody(c, pairRequestSchema);
+    if (body instanceof Response) return body;
+    const token = opaqueToken();
+    try {
+      const result = await d.executors.invoke("pair", {
+        codeHash: await digest(body.code),
+        tokenHash: await digest(token),
+        adapterVersion: body.adapterVersion,
+      });
+      if (!result || typeof result !== "object")
+        return c.json({ error: "PAIRING_REJECTED" }, 403);
+      return c.json({ token, ...result });
+    } catch (error) {
+      return executorFailed(c, error);
+    }
+  });
+  app.post("/api/executor/heartbeat", async (c) => {
+    executorCors(c);
+    if (!d.executors) return c.json({ error: "STORAGE_UNAVAILABLE" }, 503);
+    const tokenHash = await executorTokenHash(c);
+    if (tokenHash instanceof Response) return tokenHash;
+    const body = await executorBody(c, heartbeatRequestSchema);
+    if (body instanceof Response) return body;
+    try {
+      const result = await d.executors.invoke("heartbeat", {
+        tokenHash,
+        ...body,
+      });
+      if (!result) return c.json({ error: "EXECUTOR_REVOKED" }, 401);
+      return c.json(result);
+    } catch (error) {
+      return executorFailed(c, error);
+    }
+  });
+  app.post("/api/executor/watchlist", async (c) => {
+    executorCors(c);
+    if (!d.executors) return c.json({ error: "STORAGE_UNAVAILABLE" }, 503);
+    const tokenHash = await executorTokenHash(c);
+    if (tokenHash instanceof Response) return tokenHash;
+    const body = await executorBody(c, watchlistRequestSchema);
+    if (body instanceof Response) return body;
+    try {
+      const result = await d.executors.invoke("watchlist", {
+        tokenHash,
+        ...body,
+      });
+      if (!result) return c.json({ error: "EXECUTOR_REVOKED" }, 401);
+      return c.json(result);
+    } catch (error) {
+      return executorFailed(c, error);
+    }
+  });
+  app.post("/api/executor/observations", async (c) => {
+    executorCors(c);
+    if (!d.executors) return c.json({ error: "STORAGE_UNAVAILABLE" }, 503);
+    const tokenHash = await executorTokenHash(c);
+    if (tokenHash instanceof Response) return tokenHash;
+    const body = await executorBody(c, observationsRequestSchema);
+    if (body instanceof Response) return body;
+    try {
+      const result = await d.executors.invoke("observe", {
+        tokenHash,
+        ...body,
+      });
+      if (!result) return c.json({ error: "EXECUTOR_REVOKED" }, 401);
+      return c.json(result);
+    } catch (error) {
+      return executorFailed(c, error);
+    }
+  });
   app.get("/api/v1/status", async (c) => {
     const session = await admitted(c);
     if (session instanceof Response) return session;
