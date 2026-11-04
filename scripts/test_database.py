@@ -284,6 +284,8 @@ def main():
     backup_checks()
     from test_health import integration as health_checks
     health_checks()
+    from test_import import integration as import_checks
+    import_checks()
     auth_sessions()
     auth_controls()
     refresh_race()

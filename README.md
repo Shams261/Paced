@@ -98,6 +98,18 @@ npm run simulate -- unknown-restart
 
 The hosted sign-in flow is built with `VITE_HOSTED_AUTH=1`. It needs the deployed Worker and is not served by the local shell.
 
+## Browser extension
+
+`apps/extension` is a Manifest V3 Chrome extension that runs only on LinkedIn people-search result pages. It adds a checkbox to each result, reads the visible fields of the ticked rows when you click **Send to Paced**, and opens your Paced workspace with that selection in the URL fragment. The dashboard previews the selection and imports it into a named list. The extension has no background worker, no storage and no network permission; it never contacts LinkedIn or Paced servers and never reads conversations.
+
+Build and load it as an unpacked extension:
+
+```bash
+npm run build:extension
+```
+
+Then open `chrome://extensions`, enable Developer mode, choose **Load unpacked** and select `apps/extension/dist`. Open your LinkedIn account menu once on the search page so the extension can read which account you are using. After **Send to Paced** the panel shows what was read and a link to your workspace in case the browser blocked the new tab. People whose row exposes no stable LinkedIn identifier are shown but not imported.
+
 ## Testing
 
 ```bash
@@ -155,16 +167,16 @@ Worker secrets are managed with `wrangler secret`: token encryption keys, the CS
 
 ## Project status
 
-| Area | State |
-| --- | --- |
-| Google sign-in, admission, sessions, revocation | Done, hosted |
-| Prospects, lists, drafts, approval, pause/stop (fictional data) | Done, hosted |
-| Export, workspace deletion, quota meters | Done, hosted |
-| Encrypted off-site backups and restore drill | Implemented; first scheduled runs pending |
-| Monitoring, incident runbook, accessibility checks | Done |
-| Regional load test (India and North America) | Planned |
-| Browser extension: read LinkedIn pages | Not started; feasibility unproven |
-| Sending invitations and messages | Not started; disabled by design |
+| Area                                                            | State                                                    |
+| --------------------------------------------------------------- | -------------------------------------------------------- |
+| Google sign-in, admission, sessions, revocation                 | Done, hosted                                             |
+| Prospects, lists, drafts, approval, pause/stop (fictional data) | Done, hosted                                             |
+| Export, workspace deletion, quota meters                        | Done, hosted                                             |
+| Encrypted off-site backups and restore drill                    | Implemented; first scheduled runs pending                |
+| Monitoring, incident runbook, accessibility checks              | Done                                                     |
+| Regional load test (India and North America)                    | Planned                                                  |
+| Browser extension: read-only import from people search          | Implemented; end-to-end run on a pilot account completed |
+| Sending invitations and messages                                | Not started; disabled by design                          |
 
 LinkedIn's user agreement restricts automated activity. Any future browser integration needs to be checked against that policy and tested with explicitly approved recipients and content.
 
@@ -176,14 +188,14 @@ LinkedIn's user agreement restricts automated activity. Any future browser integ
 
 ## Documentation
 
-| Topic | Location |
-| --- | --- |
-| Product scope | [docs/product/brief.md](docs/product/brief.md) |
-| Operations runbook | [docs/engineering/operations-runbook.md](docs/engineering/operations-runbook.md) |
-| Architecture overview | [docs/architecture/README.md](docs/architecture/README.md) |
-| Architecture decision records | [docs/decisions/README.md](docs/decisions/README.md) |
-| Database workflow | [docs/engineering/database.md](docs/engineering/database.md) |
-| Export file format | [docs/engineering/export-format.md](docs/engineering/export-format.md) |
+| Topic                         | Location                                                                         |
+| ----------------------------- | -------------------------------------------------------------------------------- |
+| Product scope                 | [docs/product/brief.md](docs/product/brief.md)                                   |
+| Operations runbook            | [docs/engineering/operations-runbook.md](docs/engineering/operations-runbook.md) |
+| Architecture overview         | [docs/architecture/README.md](docs/architecture/README.md)                       |
+| Architecture decision records | [docs/decisions/README.md](docs/decisions/README.md)                             |
+| Database workflow             | [docs/engineering/database.md](docs/engineering/database.md)                     |
+| Export file format            | [docs/engineering/export-format.md](docs/engineering/export-format.md)           |
 
 ## License
 

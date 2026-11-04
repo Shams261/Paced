@@ -7,6 +7,7 @@
 | Architecture overview and index | [Architecture](architecture/README.md) |
 | Decisions and their rationale | [Architecture decision records](decisions/README.md) |
 | Hosted database, migrations and integration tests | [Database guide](engineering/database.md) |
+| Browser extension and import from LinkedIn search | [Extension import design](architecture/extension-import.md) |
 | Export file format | [Export format](engineering/export-format.md) |
 | Daily operation, alerts and incidents | [Operations runbook](engineering/operations-runbook.md) |
 | Local dashboard and fixture API | [Local shell](engineering/local-shell.md) |

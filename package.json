@@ -11,14 +11,15 @@
     "node": "26.10.x"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit && tsc -p apps/dashboard/tsconfig.json --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p apps/dashboard/tsconfig.json --noEmit && tsc -p apps/extension/tsconfig.json --noEmit",
     "test": "vitest run",
     "simulate": "node --import tsx tools/campaign-simulator/src/cli.ts",
     "format:check": "prettier --check \"packages/**/*.ts\" \"tools/**/*.ts\" package.json tsconfig.json \"tools/campaign-simulator/web/*\" \"apps/**/*.{ts,tsx,css,html,json}\"",
     "demo": "node --import tsx tools/campaign-simulator/src/server.ts",
     "dev": "node --import tsx tools/local-shell/dev.ts",
     "build": "npm run build --workspace @outreach/dashboard",
-    "test:a11y": "playwright test -c tools/accessibility/playwright.config.ts"
+    "test:a11y": "playwright test -c tools/accessibility/playwright.config.ts",
+    "build:extension": "npm run build --workspace @outreach/extension"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.14.0",

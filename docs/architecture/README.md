@@ -11,6 +11,7 @@ This is the approved design baseline dated 30 September 2026. Acceptance selects
 | Proposed local database implementation | [Development database design](development-database.md) |
 | Proposed product login and admission | [Product authentication](product-authentication.md) |
 | Proposed export, deletion, backup, quota and operations gates | [Pilot operations](pilot-operations.md) |
+| Proposed read-only extension and import from LinkedIn search | [Extension import](extension-import.md) |
 | Why these choices? | [Accepted ADRs](../decisions/README.md) |
 
 The [product brief](../product/brief.md) owns product scope; [feasibility](../product/feasibility.md) owns research labels and capability gaps. Provisional engineering defaults below are concrete starting settings to test, not claims of LinkedIn safety. Changing a material product boundary needs a recorded decision.

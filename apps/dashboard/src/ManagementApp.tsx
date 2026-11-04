@@ -6,10 +6,12 @@ import {
   type Campaign,
   type Content,
   type DeletionSummary,
+  type ExternalImportPreview,
   type ManagementRequest,
   type ManagementSnapshot,
   type QuotaStatus,
 } from "../../../packages/shell-contracts/src/management";
+import type { Selection } from "../../../packages/shell-contracts/src/selection";
 const emptyContent: Content = {
   note: "Hi {{name}}, I would like to connect.",
   firstMessage: "Thanks for connecting, {{name}}.",
@@ -19,10 +21,14 @@ export function ManagementApp({
   csrfToken,
   onAccessLost,
   onDeleted,
+  selection = null,
+  onSelectionDone = () => undefined,
 }: {
   csrfToken: string;
   onAccessLost: () => void;
   onDeleted: (summary: DeletionSummary) => void;
+  selection?: Selection | null;
+  onSelectionDone?: () => void;
 }) {
   const [data, setData] = useState<ManagementSnapshot | null>(null);
   const [page, setPage] = useState(0);
@@ -40,6 +46,9 @@ export function ManagementApp({
   const [status, setStatus] = useState<QuotaStatus | null>(null);
   const [confirmation, setConfirmation] = useState("");
   const [deleteRequest, setDeleteRequest] = useState<string | null>(null);
+  const [external, setExternal] = useState<ExternalImportPreview | null>(null);
+  const [externalList, setExternalList] = useState("From LinkedIn search");
+  const [externalRequest, setExternalRequest] = useState<string | null>(null);
   const alive = useRef(true);
   async function request(body?: ManagementRequest): Promise<unknown> {
     const response = await fetch(
@@ -218,6 +227,34 @@ export function ManagementApp({
       alive.current = false;
     };
   }, [page]);
+  useEffect(() => {
+    if (!selection) {
+      setExternal(null);
+      return;
+    }
+    let cancelled = false;
+    setExternalRequest(crypto.randomUUID());
+    (async () => {
+      try {
+        const preview = (await request({
+          operation: "import-preview-external",
+          selection,
+        })) as ExternalImportPreview;
+        if (!cancelled && alive.current) setExternal(preview);
+      } catch (error) {
+        if (!cancelled && alive.current)
+          setNotice(
+            error instanceof Error && error.message === "GROWTH_BLOCKED"
+              ? "Growth is blocked by the quota guard, so this selection cannot be imported now."
+              : "The LinkedIn selection could not be previewed. Return to LinkedIn and send it again.",
+          );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection]);
   function selectCampaign(c: Campaign | null) {
     setCampaign(c);
     setName(c?.name ?? "My sample campaign");
@@ -245,6 +282,10 @@ export function ManagementApp({
         setPending(null);
         setApproval(null);
         setImportPreview(false);
+        if (body.operation === "import-external") {
+          setExternal(null);
+          onSelectionDone();
+        }
         setNotice("Saved by the server. No LinkedIn action was sent.");
         const next = (await request()) as ManagementSnapshot;
         if (!alive.current) return;
@@ -359,6 +400,79 @@ export function ManagementApp({
       >
         Reload saved data
       </button>
+      {selection && (
+        <fieldset disabled={busy || !!pending}>
+          <legend>Import from LinkedIn selection</legend>
+          <p>
+            {selection.rows.length} people selected in LinkedIn at{" "}
+            {new Date(selection.capturedAt).toLocaleString()} by extension{" "}
+            {selection.extensionVersion}. Only visible fields were read; nothing
+            was sent to LinkedIn.
+          </p>
+          {external ? (
+            <>
+              <p>
+                Account:{" "}
+                {external.binding === "bound"
+                  ? "matches your linked LinkedIn account."
+                  : external.binding === "will-bind"
+                    ? "this import will link your workspace to the signed-in LinkedIn account."
+                    : external.binding === "mismatch"
+                      ? "this selection came from a different LinkedIn account than the one linked to your workspace. It cannot be imported."
+                      : "the extension could not read which LinkedIn account you used. Open the LinkedIn Me menu once and send the selection again."}
+              </p>
+              <ul>
+                {external.rows.map((r, i) => (
+                  <li key={i}>
+                    {r.displayName} — {r.role ?? "Role missing"} —{" "}
+                    {r.company ?? "Company missing"} — {r.connection} —{" "}
+                    {r.importable
+                      ? r.existing
+                        ? "already saved, will be added to the list"
+                        : "will be saved"
+                      : `not importable (${r.reason})`}
+                  </li>
+                ))}
+              </ul>
+              <label>
+                Name for this list
+                <input
+                  value={externalList}
+                  maxLength={100}
+                  onChange={(e) => setExternalList(e.target.value)}
+                />
+              </label>
+              <button
+                disabled={
+                  !["bound", "will-bind"].includes(external.binding) ||
+                  !external.rows.some((r) => r.importable)
+                }
+                onClick={() =>
+                  void run({
+                    operation: "import-external",
+                    requestId: externalRequest ?? crypto.randomUUID(),
+                    selection,
+                    listName: externalList,
+                  })
+                }
+              >
+                Confirm import of{" "}
+                {external.rows.filter((r) => r.importable).length} people
+              </button>
+              <button
+                onClick={() => {
+                  setExternal(null);
+                  onSelectionDone();
+                }}
+              >
+                Discard selection
+              </button>
+            </>
+          ) : (
+            <p>Previewing the selection…</p>
+          )}
+        </fieldset>
+      )}
       <fieldset disabled={busy || !!pending}>
         <legend>1. Import fictional prospects</legend>
         {sampleCatalog.map((p) => (
@@ -484,6 +598,9 @@ export function ManagementApp({
                 />
                 {p.display_name} — {p.company ?? "Company missing"} —{" "}
                 {p.connection}
+                {p.source === "extension-v1"
+                  ? " — from LinkedIn (unverified)"
+                  : ""}
               </label>
             ))}
             <p>{recipients.length} selected across pages.</p>

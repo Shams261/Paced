@@ -305,3 +305,176 @@ it("requires the typed phrase, explains a stale sign-in and reports deletion", a
     JSON.parse(calls[1]![1]!.body as string).requestId,
   );
 });
+
+it("previews a LinkedIn selection, confirms the import with a list name and clears it", async () => {
+  const selection = {
+    contract: "paced-selection-1" as const,
+    extensionVersion: "0.1.0",
+    capturedAt: "2026-11-03T20:00:00.000Z",
+    pageType: "people-search" as const,
+    self: { profileKey: null, profilePath: "/in/self/" },
+    rows: [
+      {
+        profileKey: "urn:li:member:1",
+        profilePath: "/in/a/",
+        displayName: "Ada Example",
+        headline: "Engineer at Example",
+        location: "Toronto",
+        current: "Current: Engineer at Example",
+        relationship: "2nd" as const,
+        action: "Connect" as const,
+        missing: [],
+      },
+      {
+        profileKey: null,
+        profilePath: "/in/b/",
+        displayName: "No Key",
+        headline: null,
+        location: null,
+        current: null,
+        relationship: "3rd" as const,
+        action: "Follow" as const,
+        missing: ["profileKey"],
+      },
+    ],
+  };
+  const preview = {
+    source: "extension-v1",
+    binding: "will-bind",
+    rows: [
+      {
+        profileKey: "urn:li:member:1",
+        displayName: "Ada Example",
+        role: "Engineer",
+        company: "Example",
+        location: "Toronto",
+        connection: "NotConnected",
+        importable: true,
+        reason: null,
+        existing: false,
+      },
+      {
+        profileKey: null,
+        displayName: "No Key",
+        role: null,
+        company: null,
+        location: null,
+        connection: "Unknown",
+        importable: false,
+        reason: "no-stable-key",
+        existing: false,
+      },
+    ],
+  };
+  const done = vi.fn();
+  const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.startsWith("/api/v1/status")) return response(quota);
+    if (init?.method === "POST") {
+      const body = JSON.parse(init.body as string);
+      if (body.operation === "import-preview-external")
+        return response(preview);
+      if (body.operation === "import-external")
+        return response({
+          listId: "l",
+          count: 1,
+          skipped: 1,
+          binding: "will-bind",
+        });
+    }
+    return response(snapshot);
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <ManagementApp
+      csrfToken="csrf"
+      onAccessLost={() => undefined}
+      onDeleted={() => undefined}
+      selection={selection}
+      onSelectionDone={done}
+    />,
+  );
+  await screen.findByText(/will link your workspace/);
+  expect(screen.getByText(/not importable \(no-stable-key\)/)).toBeDefined();
+  fireEvent.change(screen.getByLabelText("Name for this list"), {
+    target: { value: "Engineers abroad" },
+  });
+  fireEvent.click(
+    screen.getByRole("button", { name: /Confirm import of 1 people/ }),
+  );
+  await screen.findByText(/Saved by the server/);
+  const confirm = fetcher.mock.calls
+    .map(([, init]) => init?.body && JSON.parse(init.body as string))
+    .find((b) => b?.operation === "import-external");
+  expect(confirm).toMatchObject({
+    operation: "import-external",
+    listName: "Engineers abroad",
+    selection: {
+      rows: [{ profileKey: "urn:li:member:1" }, { profileKey: null }],
+    },
+  });
+  expect(done).toHaveBeenCalledTimes(1);
+});
+it("refuses to confirm a selection from a different LinkedIn account", async () => {
+  const selection = {
+    contract: "paced-selection-1" as const,
+    extensionVersion: "0.1.0",
+    capturedAt: "2026-11-03T20:00:00.000Z",
+    pageType: "people-search" as const,
+    self: { profileKey: "urn:li:member:9", profilePath: null },
+    rows: [
+      {
+        profileKey: "urn:li:member:1",
+        profilePath: "/in/a/",
+        displayName: "Ada",
+        headline: null,
+        location: null,
+        current: null,
+        relationship: null,
+        action: null,
+        missing: [],
+      },
+    ],
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) =>
+      url.startsWith("/api/v1/status")
+        ? response(quota)
+        : init?.method === "POST"
+          ? response({
+              source: "extension-v1",
+              binding: "mismatch",
+              rows: [
+                {
+                  profileKey: "urn:li:member:1",
+                  displayName: "Ada",
+                  role: null,
+                  company: null,
+                  location: null,
+                  connection: "Unknown",
+                  importable: true,
+                  reason: null,
+                  existing: false,
+                },
+              ],
+            })
+          : response(snapshot),
+    ),
+  );
+  render(
+    <ManagementApp
+      csrfToken="csrf"
+      onAccessLost={() => undefined}
+      onDeleted={() => undefined}
+      selection={selection}
+    />,
+  );
+  await screen.findByText(/different LinkedIn account/);
+  expect(
+    (
+      screen.getByRole("button", {
+        name: /Confirm import/,
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+});

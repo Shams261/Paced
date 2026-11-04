@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Paced (read-only import)",
+  "version": "0.1.0",
+  "description": "Tick people on a LinkedIn people-search page and hand the visible fields to your Paced workspace. Reads only when you click. Sends nothing to LinkedIn.",
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/search/results/people/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

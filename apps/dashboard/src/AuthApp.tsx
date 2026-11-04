@@ -1,4 +1,8 @@
 import { ManagementApp } from "./ManagementApp";
+import {
+  decodeSelection,
+  type Selection,
+} from "../../../packages/shell-contracts/src/selection";
 import { useEffect, useRef, useState } from "react";
 type Session =
   | { state: "signed-out" }
@@ -11,6 +15,29 @@ const messages: Record<string, string> = {
   "rate-limited":
     "Too many sign-in attempts. Please wait ten minutes before trying again.",
 };
+const SELECTION_STORAGE_KEY = "paced.selection";
+// Session storage is per tab and is cleared when the tab closes; the selection never reaches a server.
+function readStoredSelection(): string | null {
+  try {
+    return window.sessionStorage.getItem(SELECTION_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+function storeSelection(encoded: string) {
+  try {
+    window.sessionStorage.setItem(SELECTION_STORAGE_KEY, encoded);
+  } catch {
+    // Storage may be unavailable; the selection then lives only in memory.
+  }
+}
+function forgetStoredSelection() {
+  try {
+    window.sessionStorage.removeItem(SELECTION_STORAGE_KEY);
+  } catch {
+    // Nothing to forget.
+  }
+}
 export function AuthApp() {
   const [session, setSession] = useState<Session | null>(null);
   const [notice, setNotice] = useState("");
@@ -18,6 +45,7 @@ export function AuthApp() {
   const [retryLogout, setRetryLogout] = useState(false);
   const generation = useRef(0);
   const logoutPending = useRef(false);
+  const [selection, setSelection] = useState<Selection | null>(null);
   async function load() {
     if (logoutPending.current) return;
     const current = ++generation.current;
@@ -60,6 +88,22 @@ export function AuthApp() {
     const url = new URL(window.location.href);
     const reason = url.searchParams.get("auth");
     if (reason) setNotice(messages[reason] ?? "Please sign in again.");
+    // A selection from the read-only extension arrives in the fragment and never reaches a server.
+    // It is kept in this tab's session storage so that a sign-in redirect does not lose it.
+    const encoded = url.hash.startsWith("#selection=")
+      ? url.hash.slice("#selection=".length)
+      : readStoredSelection();
+    const fragment = encoded ? decodeSelection(encoded) : null;
+    if (encoded && !fragment) {
+      forgetStoredSelection();
+      setNotice(
+        "The LinkedIn selection could not be read. Return to LinkedIn and send it again.",
+      );
+    }
+    if (fragment) {
+      setSelection(fragment);
+      storeSelection(encoded ?? "");
+    }
     window.history.replaceState(null, "", window.location.pathname);
     const recheck = () => {
       void load();
@@ -128,6 +172,12 @@ export function AuthApp() {
         </button>
       ) : (
         <div hidden={busy}>
+          {session?.state === "signed-out" && selection && (
+            <p role="status">
+              Your LinkedIn selection is kept in this tab. Sign in to preview
+              and import it.
+            </p>
+          )}
           {session?.state === "signed-out" && (
             <form action="/api/auth/login" method="post">
               <button disabled={busy} type="submit">
@@ -149,6 +199,11 @@ export function AuthApp() {
               <h2>Access approved</h2>
               <ManagementApp
                 csrfToken={session.csrfToken}
+                selection={selection}
+                onSelectionDone={() => {
+                  forgetStoredSelection();
+                  setSelection(null);
+                }}
                 onAccessLost={() => void load()}
                 onDeleted={(summary) => {
                   generation.current++;

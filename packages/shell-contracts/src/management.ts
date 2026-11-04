@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { selectionSchema } from "./selection.js";
 const uuid = z.uuid();
 const revision = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const text = z.string().trim().min(1).max(2000);
@@ -74,6 +75,16 @@ export const managementRequestSchema = z.discriminatedUnion("operation", [
     listName: z.string().trim().min(1).max(100),
   }),
   z.strictObject({
+    operation: z.literal("import-preview-external"),
+    selection: selectionSchema,
+  }),
+  z.strictObject({
+    operation: z.literal("import-external"),
+    requestId: uuid,
+    selection: selectionSchema,
+    listName: z.string().trim().min(1).max(100),
+  }),
+  z.strictObject({
     operation: z.literal("save-draft"),
     requestId: uuid,
     campaignId: uuid.nullable(),
@@ -111,6 +122,22 @@ export interface Prospect {
   company: string | null;
   connection: string;
   revision: number;
+  source?: "synthetic" | "verified-adapter" | "extension-v1";
+}
+export interface ExternalImportPreview {
+  source: "extension-v1";
+  binding: "will-bind" | "bound" | "mismatch" | "self-unavailable";
+  rows: {
+    profileKey: string | null;
+    displayName: string;
+    role: string | null;
+    company: string | null;
+    location: string | null;
+    connection: string;
+    importable: boolean;
+    reason: string | null;
+    existing: boolean;
+  }[];
 }
 export interface Campaign {
   id: string;

@@ -8,21 +8,52 @@ import {
   screen,
 } from "@testing-library/react";
 import { AuthApp } from "./AuthApp.js";
+import { encodeSelection } from "../../../packages/shell-contracts/src/selection";
 vi.mock("./ManagementApp", () => ({
-  ManagementApp: () => (
+  ManagementApp: (props: {
+    selection: { rows: unknown[] } | null;
+    onSelectionDone: () => void;
+  }) => (
     <div>
       Saved workspace
       <label>
         Unsaved draft
         <input defaultValue="Example draft" />
       </label>
+      {props.selection && (
+        <button onClick={props.onSelectionDone}>
+          Selection with {props.selection.rows.length} rows
+        </button>
+      )}
     </div>
   ),
 }));
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  window.sessionStorage.clear();
+  window.history.replaceState(null, "", "/");
 });
+const sampleSelection = {
+  contract: "paced-selection-1" as const,
+  extensionVersion: "0.1.0",
+  capturedAt: "2026-11-03T20:00:00.000Z",
+  pageType: "people-search" as const,
+  self: { profileKey: null, profilePath: "/in/self/" },
+  rows: [
+    {
+      profileKey: "urn:li:member:1",
+      profilePath: "/in/a/",
+      displayName: "Ada Example",
+      headline: "Engineer at Example",
+      location: "Toronto",
+      current: null,
+      relationship: "2nd" as const,
+      action: "Connect" as const,
+      missing: [],
+    },
+  ],
+};
 it("shows a keyboard-accessible Google sign-in form", async () => {
   vi.stubGlobal(
     "fetch",
@@ -214,4 +245,56 @@ it("preserves unsaved workspace input across a successful hidden access recheck"
   expect(
     (screen.getByLabelText("Unsaved draft") as HTMLInputElement).value,
   ).toBe("Keep my edits");
+});
+
+it("keeps a LinkedIn selection in this tab across the sign-in redirect and forgets it once done", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ state: "signed-out" }),
+    }),
+  );
+  window.history.replaceState(
+    null,
+    "",
+    `/#selection=${encodeSelection(sampleSelection)}`,
+  );
+  const signedOut = render(<AuthApp />);
+  await screen.findByRole("button", { name: "Sign in with Google" });
+  expect(window.location.hash).toBe("");
+  expect(
+    screen.getByText(/Your LinkedIn selection is kept in this tab/),
+  ).toBeTruthy();
+  expect(window.sessionStorage.getItem("paced.selection")).not.toBeNull();
+  signedOut.unmount();
+  // After Google redirects back, the page loads fresh without the fragment.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ state: "admitted", csrfToken: "synthetic" }),
+    }),
+  );
+  render(<AuthApp />);
+  const done = await screen.findByRole("button", {
+    name: "Selection with 1 rows",
+  });
+  fireEvent.click(done);
+  expect(screen.queryByRole("button", { name: /Selection with/ })).toBeNull();
+  expect(window.sessionStorage.getItem("paced.selection")).toBeNull();
+});
+
+it("drops an unreadable stored selection with a notice", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ state: "signed-out" }),
+    }),
+  );
+  window.sessionStorage.setItem("paced.selection", "not-a-selection");
+  render(<AuthApp />);
+  await screen.findByText(/The LinkedIn selection could not be read/);
+  expect(window.sessionStorage.getItem("paced.selection")).toBeNull();
 });

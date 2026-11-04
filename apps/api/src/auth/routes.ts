@@ -206,7 +206,7 @@ export function createAuthApp(d: AuthDependencies) {
       if (!constantTimeEqual(expected, c.req.header("X-CSRF-Token") ?? ""))
         return c.json({ error: "CSRF_DENIED" }, 403);
       const body = await c.req.text();
-      if (new TextEncoder().encode(body).length > 32_768)
+      if (new TextEncoder().encode(body).length > 131_072)
         return c.json({ error: "REQUEST_TOO_LARGE" }, 400);
       let value: unknown;
       try {
