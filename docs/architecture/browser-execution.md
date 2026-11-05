@@ -95,4 +95,4 @@ Executed for slice 2 on 5 November 2026: ten database scenarios (listing, materi
 
 ## Implementation status
 
-Slice 1 implemented, verified as listed above and deployed on 4 November 2026; the shadow period on the owner's account follows. Slice 2 implemented and verified on 5 November 2026 (database scenarios for the queue, route, dashboard and accessibility tests); not yet deployed.
+Slice 1 implemented, verified as listed above and deployed on 4 November 2026; the shadow period on the owner's account follows. Slice 2 implemented and verified on 5 November 2026 (database scenarios for the queue, route, dashboard and accessibility tests) and deployed the same day; the owner's first run of the queue with real people follows.

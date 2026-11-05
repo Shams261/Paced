@@ -177,7 +177,7 @@ Worker secrets are managed with `wrangler secret`: token encryption keys, the CS
 | Regional load test (India and North America)                      | Planned                                                  |
 | Browser extension: read-only import from people search            | Implemented; end-to-end run on a pilot account completed |
 | Browser pairing and user-triggered observation of enrolled people | Implemented; shadow period pending                       |
-| Manual send queue with user-reported outcomes                     | Implemented; deployment pending                          |
+| Manual send queue with user-reported outcomes                     | Implemented and deployed; first real use pending         |
 | Sending invitations and messages                                  | Not started; disabled by design                          |
 
 LinkedIn's user agreement restricts automated activity. Any future browser integration needs to be checked against that policy and tested with explicitly approved recipients and content.
