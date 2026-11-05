@@ -288,6 +288,8 @@ def main():
     import_checks()
     from test_executor import integration as executor_checks
     executor_checks()
+    from test_queue import integration as queue_checks
+    queue_checks()
     auth_sessions()
     auth_controls()
     refresh_race()

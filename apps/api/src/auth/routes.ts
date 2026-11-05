@@ -7,6 +7,7 @@ import {
 import {
   executorsRequestSchema,
   exportSections,
+  queueRequestSchema,
 } from "../../../../packages/shell-contracts/src/management.js";
 import {
   heartbeatRequestSchema,
@@ -367,6 +368,41 @@ export function createAuthApp(d: AuthDependencies) {
       return c.json({ error: "INVALID_EXECUTOR_REQUEST" }, 400);
     return c.json({ error: "STORAGE_UNAVAILABLE" }, 503);
   }
+  // The manual send queue: the owner starts a step, answers it and reports what happened by hand.
+  app.on(["GET", "POST"], "/api/v1/queue", async (c) => {
+    const session = await admitted(c);
+    if (session instanceof Response) return session;
+    if (!d.management) return c.json({ error: "STORAGE_UNAVAILABLE" }, 503);
+    let operation = "list";
+    let args: Record<string, unknown> = {};
+    if (c.req.method === "POST") {
+      if (!(await csrfValid(c, session)))
+        return c.json({ error: "CSRF_DENIED" }, 403);
+      const body = await c.req.text();
+      if (new TextEncoder().encode(body).length > 4096)
+        return c.json({ error: "REQUEST_TOO_LARGE" }, 400);
+      let value: unknown;
+      try {
+        value = JSON.parse(body);
+      } catch {
+        return c.json({ error: "INVALID_QUEUE_REQUEST" }, 400);
+      }
+      const parsed = queueRequestSchema.safeParse(value);
+      if (!parsed.success)
+        return c.json({ error: "INVALID_QUEUE_REQUEST" }, 400);
+      ({ operation, ...args } = parsed.data);
+    }
+    try {
+      const response = await d.management.invoke(
+        session.accessToken,
+        "seq_queue",
+        { operation, args },
+      );
+      return c.json(await response.json());
+    } catch (error) {
+      return failed(c, error);
+    }
+  });
   app.post("/api/executor/pair", async (c) => {
     executorCors(c);
     if (!d.executors) return c.json({ error: "STORAGE_UNAVAILABLE" }, 503);

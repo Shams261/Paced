@@ -174,10 +174,13 @@ const externalPreview = {
   ],
 };
 const browsers = {
-  executionMode: "disabled",
+  executionMode: "manual",
   timezone: "Asia/Kolkata",
-  acknowledgedAt: null,
+  acknowledgedAt: "2026-11-04T10:00:00Z",
   bound: true,
+  invitationCap: 18,
+  messageCap: 20,
+  spacingMinutes: 5,
   executors: [
     {
       id: "11111111-1111-4111-8111-111111111111",
@@ -188,6 +191,59 @@ const browsers = {
       revokedAt: null,
     },
   ],
+};
+const queueItem = {
+  actionId: "33333333-3333-4333-8333-333333333333",
+  enrollmentId: "44444444-4444-4444-8444-444444444444",
+  prospectId: "p1",
+  displayName: "Ada Example",
+  profilePath: "/in/ada-example/",
+  campaignName: "Sample",
+  step: 0,
+  kind: "Invitation",
+  dueAt: "2026-11-05T09:00:00Z",
+  text: "Hi Ada Example, I would like to connect.",
+  blocked: null,
+};
+const queue = {
+  executionMode: "manual",
+  timezone: "Asia/Kolkata",
+  invitationsToday: 0,
+  invitationCap: 18,
+  messagesToday: 0,
+  messageCap: 20,
+  spacingMinutes: 5,
+  nextAllowedAt: null,
+  current: null,
+  items: [queueItem],
+  people: [
+    {
+      enrollmentId: queueItem.enrollmentId,
+      prospectId: "p1",
+      displayName: "Ada Example",
+      profilePath: "/in/ada-example/",
+      campaignName: "Sample",
+      status: "Held",
+      stopReason: "execution-disabled",
+      connection: "NotConnected",
+      lastReport: null,
+      lastObserved: { connection: "NotConnected", at: "2026-11-05T08:00:00Z" },
+    },
+  ],
+};
+const queueStarted = {
+  ...queue,
+  items: [],
+  current: {
+    attemptId: "55555555-5555-4555-8555-555555555555",
+    actionId: queueItem.actionId,
+    startedAt: "2026-11-05T09:01:00Z",
+    displayName: "Ada Example",
+    profilePath: "/in/ada-example/",
+    step: 0,
+    kind: "Invitation",
+    text: queueItem.text,
+  },
 };
 type Mode = "signed-out" | "admitted" | "outage";
 async function mock(page: Page, mode: Mode) {
@@ -226,6 +282,8 @@ async function mock(page: Page, mode: Mode) {
         JSON.parse(route.request().postData() ?? "{}").operation === "pair-code"
         ? json({ code: "ABCD2345", expiresAt: "2026-11-04T10:05:00Z" })
         : json(browsers);
+    if (url.pathname === "/api/v1/queue")
+      return json(route.request().method() === "POST" ? queueStarted : queue);
     if (url.pathname === "/api/v1/export")
       return route.fulfill({
         status: 200,
@@ -320,6 +378,14 @@ test("admitted workspace: import preview, draft, review, approve, pause, stop, e
     page.getByRole("status").filter({ hasText: "ABCD2345" }),
   ).toBeVisible();
   await axe(page, "browsers");
+  // Send by hand: start the due step by keyboard; the open step is announced as a group with its text and answers.
+  await page.getByRole("button", { name: "Start Ada Example" }).focus();
+  expect(await focusedHasVisibleOutline(page)).toBe("visible");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("group", { name: "Open step" })).toBeVisible();
+  await expect(page.getByLabel("Text to send")).toHaveValue(queueItem.text);
+  await expect(page.getByRole("button", { name: "I sent it" })).toBeVisible();
+  await axe(page, "queue");
   // Draft: select a campaign with the keyboard, edit the first message, save.
   await page.getByLabel("Campaign", { exact: true }).focus();
   await page.getByLabel("Campaign", { exact: true }).selectOption("c1");

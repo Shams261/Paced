@@ -45,7 +45,7 @@ export const observationsRequestSchema = z.strictObject({
 export type SelfIdentity = z.infer<typeof selfIdentitySchema>;
 export type ExecutorObservation = z.infer<typeof executorObservationSchema>;
 export type MessageEvidence = z.infer<typeof messageEvidenceSchema>;
-export type ExecutionMode = "disabled" | "observe";
+export type ExecutionMode = "disabled" | "observe" | "manual";
 export type IdentityMatch = "match" | "mismatch" | "unknown";
 export interface PairResponse {
   token: string;

@@ -186,16 +186,23 @@ export const executorsRequestSchema = z.discriminatedUnion("operation", [
   z.strictObject({
     operation: z.literal("settings"),
     timezone: z.string().trim().min(1).max(64).nullable(),
-    executionMode: z.enum(["disabled", "observe"]),
+    executionMode: z.enum(["disabled", "observe", "manual"]),
     acknowledged: z.boolean(),
+    invitationCap: z.number().int().min(1).max(20).optional(),
+    messageCap: z.number().int().min(1).max(40).optional(),
+    spacingMinutes: z.number().int().min(1).max(60).optional(),
   }),
 ]);
 export type ExecutorsRequest = z.infer<typeof executorsRequestSchema>;
+export type ExecutionMode = "disabled" | "observe" | "manual";
 export interface ExecutorsView {
-  executionMode: "disabled" | "observe";
+  executionMode: ExecutionMode;
   timezone: string | null;
   acknowledgedAt: string | null;
   bound: boolean;
+  invitationCap: number;
+  messageCap: number;
+  spacingMinutes: number;
   executors: {
     id: string;
     label: string;
@@ -208,6 +215,79 @@ export interface ExecutorsView {
 export interface PairingCode {
   code: string;
   expiresAt: string;
+}
+/** The manual send queue: the user performs every LinkedIn action by hand and answers here. */
+export const queueRequestSchema = z.discriminatedUnion("operation", [
+  z.strictObject({ operation: z.literal("list") }),
+  z.strictObject({ operation: z.literal("start"), actionId: uuid }),
+  z.strictObject({ operation: z.literal("sent"), attemptId: uuid }),
+  z.strictObject({ operation: z.literal("not-sent"), attemptId: uuid }),
+  z.strictObject({
+    operation: z.literal("report"),
+    enrollmentId: uuid,
+    event: z.enum([
+      "accepted",
+      "replied",
+      "messaged",
+      "withdrawn",
+      "declined",
+      "already-connected",
+      "not-connected",
+    ]),
+  }),
+]);
+export type QueueRequest = z.infer<typeof queueRequestSchema>;
+export type QueueEvent = Extract<QueueRequest, { event: string }>["event"];
+export interface QueueItem {
+  actionId: string;
+  enrollmentId: string;
+  prospectId: string;
+  displayName: string;
+  profilePath: string | null;
+  campaignName: string;
+  step: number;
+  kind: "Invitation" | "Message";
+  dueAt: string;
+  text: string;
+  blocked: string | null;
+}
+export interface QueuePerson {
+  enrollmentId: string;
+  prospectId: string;
+  displayName: string;
+  profilePath: string | null;
+  campaignName: string;
+  status: string;
+  stopReason: string | null;
+  connection: string;
+  lastReport: {
+    connection: string;
+    messageDirection: "incoming" | "outgoing" | null;
+    at: string;
+  } | null;
+  lastObserved: { connection: string; at: string } | null;
+}
+export interface QueueView {
+  executionMode: ExecutionMode;
+  timezone: string | null;
+  invitationsToday: number;
+  invitationCap: number;
+  messagesToday: number;
+  messageCap: number;
+  spacingMinutes: number;
+  nextAllowedAt: string | null;
+  current: {
+    attemptId: string;
+    actionId: string;
+    startedAt: string;
+    displayName: string;
+    profilePath: string | null;
+    step: number;
+    kind: "Invitation" | "Message";
+    text: string;
+  } | null;
+  items: QueueItem[];
+  people: QueuePerson[];
 }
 export const DELETE_CONFIRMATION = "DELETE MY WORKSPACE";
 export const deleteWorkspaceSchema = z.strictObject({

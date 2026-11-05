@@ -15,6 +15,7 @@ import {
   type QuotaStatus,
 } from "../../../packages/shell-contracts/src/management";
 import type { Selection } from "../../../packages/shell-contracts/src/selection";
+import { SendByHand } from "./SendByHand";
 const emptyContent: Content = {
   note: "Hi {{name}}, I would like to connect.",
   firstMessage: "Thanks for connecting, {{name}}.",
@@ -57,6 +58,10 @@ export function ManagementApp({
   const [timezoneInput, setTimezoneInput] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
   const [browsersNotice, setBrowsersNotice] = useState("");
+  const [invitationCap, setInvitationCap] = useState(18);
+  const [messageCap, setMessageCap] = useState(20);
+  const [spacingMinutes, setSpacingMinutes] = useState(5);
+  const [reloads, setReloads] = useState(0);
   const alive = useRef(true);
   async function request(body?: ManagementRequest): Promise<unknown> {
     const response = await fetch(
@@ -135,6 +140,11 @@ export function ManagementApp({
       setBrowsers(view as ExecutorsView);
       setTimezoneInput((current) => current || view.timezone || "");
       setAcknowledged((current) => current || !!view.acknowledgedAt);
+      if (typeof view.invitationCap === "number")
+        setInvitationCap(view.invitationCap);
+      if (typeof view.messageCap === "number") setMessageCap(view.messageCap);
+      if (typeof view.spacingMinutes === "number")
+        setSpacingMinutes(view.spacingMinutes);
     } catch {
       if (alive.current) setBrowsers(null);
     }
@@ -293,7 +303,10 @@ export function ManagementApp({
     setBusy(true);
     try {
       const next = (await request()) as ManagementSnapshot;
-      if (alive.current) setData(next);
+      if (alive.current) {
+        setData(next);
+        setReloads((count) => count + 1);
+      }
     } catch {
       if (alive.current)
         setNotice("Saved data could not be loaded. Retry loading.");
@@ -475,7 +488,11 @@ export function ManagementApp({
           person's profile or message thread yourself. It never opens pages,
           clicks or sends anything. Observation is{" "}
           <strong>
-            {browsers?.executionMode === "observe" ? "on" : "off"}
+            {browsers?.executionMode === "manual"
+              ? "on, with manual sending"
+              : browsers?.executionMode === "observe"
+                ? "on"
+                : "off"}
           </strong>
           .
         </p>
@@ -518,8 +535,54 @@ export function ManagementApp({
         >
           Turn observation on
         </button>
+        <label>
+          Invitations a day (at most 20)
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={invitationCap}
+            onChange={(e) => setInvitationCap(Number(e.target.value))}
+          />
+        </label>
+        <label>
+          Messages a day (at most 40)
+          <input
+            type="number"
+            min={1}
+            max={40}
+            value={messageCap}
+            onChange={(e) => setMessageCap(Number(e.target.value))}
+          />
+        </label>
+        <label>
+          Minutes between two starts (1 to 60)
+          <input
+            type="number"
+            min={1}
+            max={60}
+            value={spacingMinutes}
+            onChange={(e) => setSpacingMinutes(Number(e.target.value))}
+          />
+        </label>
         <button
-          disabled={busy || browsers?.executionMode !== "observe"}
+          disabled={busy || !browsers?.bound || !timezoneInput || !acknowledged}
+          onClick={() =>
+            void runBrowsers({
+              operation: "settings",
+              timezone: timezoneInput.trim() || null,
+              executionMode: "manual",
+              acknowledged,
+              invitationCap,
+              messageCap,
+              spacingMinutes,
+            })
+          }
+        >
+          Turn manual sending on
+        </button>
+        <button
+          disabled={busy || !browsers || browsers.executionMode === "disabled"}
           onClick={() =>
             void runBrowsers({
               operation: "settings",
@@ -568,6 +631,13 @@ export function ManagementApp({
           <p>No browser is paired yet.</p>
         )}
       </section>
+      <SendByHand
+        csrfToken={csrfToken}
+        mode={browsers?.executionMode ?? "disabled"}
+        reloadKey={reloads}
+        onAccessLost={onAccessLost}
+        onChanged={() => void load()}
+      />
       {pending && (
         <button disabled={busy} onClick={() => void run(pending)}>
           Retry unconfirmed save

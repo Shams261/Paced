@@ -485,6 +485,9 @@ it("manages paired browsers: pairing code, observation settings with acknowledge
     timezone: null,
     acknowledgedAt: null,
     bound: true,
+    invitationCap: 18,
+    messageCap: 20,
+    spacingMinutes: 5,
     executors: [
       {
         id: "11111111-1111-4111-8111-111111111111",

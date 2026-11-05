@@ -152,5 +152,7 @@ it("relays one observation with the known identity and records the result or the
   expect(status.observations).toBe(1);
   expect(status.lastError).toBe("IDENTITY_MISMATCH");
   await handle({ type: "paced:unpair" });
-  expect((await handle({ type: "paced:status" })).paired).toBe(false);
+  expect(
+    ((await handle({ type: "paced:status" })) as { paired: boolean }).paired,
+  ).toBe(false);
 });

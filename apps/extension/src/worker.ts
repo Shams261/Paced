@@ -119,12 +119,11 @@ async function watchlist(force = false): Promise<{
   });
   return {
     people: result.people,
-    reason:
-      result.executionMode !== "observe"
-        ? "observation-off"
-        : result.identity !== "match"
-          ? `identity-${result.identity}`
-          : null,
+    reason: !["observe", "manual"].includes(result.executionMode)
+      ? "observation-off"
+      : result.identity !== "match"
+        ? `identity-${result.identity}`
+        : null,
   };
 }
 async function observe(observation: ExecutorObservation) {

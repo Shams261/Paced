@@ -4,7 +4,11 @@ import {
 } from "../../../packages/shell-contracts/src/management.js";
 export { deleteWorkspaceSchema, managementRequestSchema };
 export type ManagementFunction =
-  "seq_manage" | "seq_export" | "seq_delete_workspace" | "seq_executors";
+  | "seq_manage"
+  | "seq_export"
+  | "seq_delete_workspace"
+  | "seq_executors"
+  | "seq_queue";
 export interface ManagementGateway {
   /** Parsed `seq_manage` result. */
   call(token: string, operation: string, args: unknown): Promise<unknown>;
@@ -36,6 +40,8 @@ function failure(error: { code?: string } | null): ManagementError {
       return new ManagementError("INVALID_MANAGEMENT_REQUEST", 400);
     case "53400":
       return new ManagementError("GROWTH_BLOCKED", 503);
+    case "55000":
+      return new ManagementError("QUEUE_BLOCKED", 409);
     default:
       return new ManagementError("STORAGE_UNAVAILABLE", 503);
   }

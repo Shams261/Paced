@@ -655,3 +655,57 @@ it("lets the signed-in owner manage paired browsers through the CSRF-guarded exe
   });
   expect(noCsrf.status).toBe(403);
 });
+it("serves the manual send queue to the admitted owner and guards its answers with CSRF", async () => {
+  const f = await fixture();
+  f.record.workspaceId = crypto.randomUUID();
+  f.management.invoke.mockImplementation(async () =>
+    Response.json({ executionMode: "manual", items: [], people: [] }),
+  );
+  const list = await f.request("/api/v1/queue", { headers: f.headers });
+  expect(list.status).toBe(200);
+  expect(f.management.invoke).toHaveBeenLastCalledWith(
+    "private-access",
+    "seq_queue",
+    { operation: "list", args: {} },
+  );
+  const csrf = await csrfToken(f.csrfSecret, f.hash);
+  const attemptId = "22222222-2222-4222-8222-222222222222";
+  const sent = await f.request("/api/v1/queue", {
+    method: "POST",
+    headers: {
+      ...f.headers,
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrf,
+    },
+    body: JSON.stringify({ operation: "sent", attemptId }),
+  });
+  expect(sent.status).toBe(200);
+  expect(f.management.invoke).toHaveBeenLastCalledWith(
+    "private-access",
+    "seq_queue",
+    { operation: "sent", args: { attemptId } },
+  );
+  const noCsrf = await f.request("/api/v1/queue", {
+    method: "POST",
+    headers: { ...f.headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ operation: "start", actionId: attemptId }),
+  });
+  expect(noCsrf.status).toBe(403);
+  const invalid = await f.request("/api/v1/queue", {
+    method: "POST",
+    headers: {
+      ...f.headers,
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrf,
+    },
+    body: JSON.stringify({
+      operation: "report",
+      enrollmentId: attemptId,
+      event: "ghosted",
+    }),
+  });
+  expect(invalid.status).toBe(400);
+  expect((await invalid.json()).error).toBe("INVALID_QUEUE_REQUEST");
+  const anonymous = await f.request("/api/v1/queue");
+  expect(anonymous.status).toBe(401);
+});
